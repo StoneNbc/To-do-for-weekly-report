@@ -211,6 +211,27 @@ describe('FloatingNotePage', () => {
     expect(screen.queryByLabelText('导出成功')).not.toBeInTheDocument();
   });
 
+  it('点击菜单外空白区域或按 Esc 会关闭菜单，点击菜单内部不会误关闭', async () => {
+    renderPage();
+    await screen.findByRole('list', { name: '今日待办' });
+
+    fireEvent.click(screen.getByRole('button', { name: '打开便利贴菜单' }));
+    const menu = screen.getByRole('menu');
+    fireEvent.pointerDown(menu);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    fireEvent.pointerDown(screen.getByRole('main'));
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '打开便利贴菜单' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '打开便利贴菜单' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
   it('菜单导出取消不报错且 failed 有明确错误', async () => {
     const cancelled = renderPage('export-cancelled');
     await screen.findByRole('list', { name: '今日待办' });

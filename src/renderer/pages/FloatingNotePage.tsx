@@ -58,6 +58,32 @@ export function FloatingNotePage() {
     void loadToday();
   }, [loadToday]);
 
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    const closeWhenClickingOutside = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (
+        target.closest('#floating-note-menu') ||
+        target.closest('[aria-controls="floating-note-menu"]')
+      ) {
+        return;
+      }
+      setMenuOpen(false);
+    };
+    const closeWithEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+
+    document.addEventListener('pointerdown', closeWhenClickingOutside);
+    document.addEventListener('keydown', closeWithEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeWhenClickingOutside);
+      document.removeEventListener('keydown', closeWithEscape);
+    };
+  }, [menuOpen]);
+
   const refresh = useCallback(async () => {
     if (state.mode === 'today') await loadToday();
     else await loadHistory(state.selectedDate);
