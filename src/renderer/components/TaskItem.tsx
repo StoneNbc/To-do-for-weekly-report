@@ -118,21 +118,23 @@ export function TaskItem({
             ) : null}
           </div>
         ) : (
-          <button
-            aria-label={`编辑任务：${content}`}
+          <span
+            aria-label={`任务内容：${content}`}
             className={`block w-full truncate rounded text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-amber-600 ${
               completed ? 'text-stone-500 line-through decoration-stone-400' : 'text-stone-800'
             }`}
-            disabled={disabled}
-            onDoubleClick={() => setEditing(true)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === 'F2') setEditing(true);
+            onDoubleClick={() => {
+              if (!disabled) setEditing(true);
             }}
+            onKeyDown={(event) => {
+              if (!disabled && (event.key === 'Enter' || event.key === 'F2')) setEditing(true);
+            }}
+            role="button"
+            tabIndex={disabled ? -1 : 0}
             title="双击或按 F2 编辑"
-            type="button"
           >
             {content}
-          </button>
+          </span>
         )}
       </div>
 

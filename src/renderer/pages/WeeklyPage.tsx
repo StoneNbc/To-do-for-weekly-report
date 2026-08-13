@@ -70,10 +70,10 @@ export function WeeklyPage() {
   };
 
   return (
-    <main className="flex min-h-screen flex-col bg-stone-50 text-stone-800">
-      <header className="border-b border-stone-200 bg-white px-6 py-5">
-        <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-4">
-          <div>
+    <main className="flex min-h-screen min-w-0 flex-col overflow-x-hidden bg-stone-50 text-stone-800">
+      <header className="border-b border-stone-200 bg-white px-4 py-4 sm:px-6 sm:py-5">
+        <div className="mx-auto flex min-w-0 max-w-4xl flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <div className="min-w-0">
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-amber-700">Weekly journal</p>
             <WeekNavigator
               isoWeek={state.selection.isoWeek}
@@ -86,7 +86,7 @@ export function WeeklyPage() {
           </div>
           <button
             aria-label="一键导出周报 TXT"
-            className="rounded-xl bg-stone-900 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-stone-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 disabled:opacity-50"
+            className="w-full rounded-xl bg-stone-900 px-5 py-3 text-sm font-semibold text-white shadow-sm outline-none hover:bg-stone-700 focus-visible:ring-2 focus-visible:ring-amber-600 disabled:opacity-50 sm:w-auto"
             disabled={state.loading || state.exporting}
             onClick={() => void exportReport()}
             type="button"
@@ -96,7 +96,7 @@ export function WeeklyPage() {
         </div>
       </header>
 
-      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 px-6 py-6">
+      <div className="mx-auto flex w-full min-w-0 max-w-4xl flex-1 flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6">
         <StatusBanner error={state.error} onRetry={refreshSelection} />
         {state.exportResult ? (
           <ExportResultToast
@@ -110,7 +110,7 @@ export function WeeklyPage() {
         {state.loading ? (
           <div className="grid flex-1 place-items-center py-20" role="status">正在读取本地周记…</div>
         ) : !state.snapshot || state.snapshot.groups.length === 0 ? (
-          <section className="grid flex-1 place-items-center rounded-2xl border border-dashed border-stone-300 bg-white p-12 text-center">
+          <section className="grid flex-1 place-items-center rounded-2xl border border-dashed border-stone-300 bg-white p-6 text-center sm:p-12">
             <div><p className="text-lg font-medium text-stone-700">本周暂无完成记录</p><p className="mt-2 text-sm text-stone-400">完成任务后，它们会在这里按日期汇总。</p></div>
           </section>
         ) : (

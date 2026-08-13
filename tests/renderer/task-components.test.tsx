@@ -24,7 +24,7 @@ describe('TaskItem', () => {
       />,
     );
 
-    fireEvent.keyDown(screen.getByRole('button', { name: '编辑任务：重复记录' }), { key: 'F2' });
+    fireEvent.keyDown(screen.getByRole('button', { name: '任务内容：重复记录' }), { key: 'F2' });
     const input = screen.getByRole('textbox', { name: '编辑任务：重复记录' });
     fireEvent.change(input, { target: { value: '只编辑第二条重复记录' } });
     fireEvent.keyDown(input, { key: 'Enter' });
@@ -48,7 +48,7 @@ describe('TaskItem', () => {
         onToggle={vi.fn()}
       />,
     );
-    fireEvent.doubleClick(screen.getByRole('button', { name: '编辑任务：准备周会' }));
+    fireEvent.doubleClick(screen.getByRole('button', { name: '任务内容：准备周会' }));
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
     expect(onEdit).not.toHaveBeenCalled();
   });

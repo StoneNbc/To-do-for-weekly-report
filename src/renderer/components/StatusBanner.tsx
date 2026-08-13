@@ -20,7 +20,11 @@ export function StatusBanner({
     >
       <span>{error?.message ?? notice}</span>
       {error && onRetry ? (
-        <button className="rounded-md px-2 py-1 font-medium hover:bg-red-100" onClick={() => void onRetry()}>
+        <button
+          className="rounded-md px-2 py-1 font-medium outline-none hover:bg-red-100 focus-visible:ring-2 focus-visible:ring-red-600"
+          onClick={() => void onRetry()}
+          type="button"
+        >
           重试
         </button>
       ) : null}

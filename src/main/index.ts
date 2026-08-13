@@ -1,4 +1,4 @@
-import { app, ipcMain, powerMonitor } from 'electron';
+import { app, dialog, ipcMain, powerMonitor, session, shell } from 'electron';
 import { mkdir } from 'node:fs/promises';
 import { AppLifecycle } from './appLifecycle';
 import { IPC } from './ipc/channels';
@@ -16,8 +16,12 @@ import { WeeklyService } from './services/weeklyService';
 import { FileWatcherService, getCurrentWeekPath } from './services/fileWatcher';
 import { ArchiveScheduler } from './services/scheduler';
 import { registerBusinessHandlers } from './ipc/registerHandlers';
+import { registerReportHandlers } from './ipc/reportHandlers';
+import { createReportAgent } from './agents/agentFactory';
+import { ReportService } from './services/reportService';
 import { TrayManager } from './trayManager';
 import { getDefaultWindowPaths, WindowManager } from './windowManager';
+import { installLocalOnlyNetworkPolicy } from './platform/networkPolicy';
 
 const dataPaths = resolveDataPaths({ app });
 const logger = new LocalFileLogger({
@@ -31,6 +35,7 @@ let windowManager: WindowManager | null = null;
 let trayManager: TrayManager | null = null;
 let fileWatcher: FileWatcherService | null = null;
 let scheduler: ArchiveScheduler | null = null;
+let reportService: ReportService | null = null;
 const textFileStore = new TextFileStore();
 const lifecycle = new AppLifecycle({
   app,
@@ -38,7 +43,7 @@ const lifecycle = new AppLifecycle({
   showFloatingNote: () => windowManager?.showFloatingNote(),
   flushPendingWrites: async () => {
     windowManager?.saveCurrentBounds();
-    await Promise.all([config.flush(), textFileStore.drain()]);
+    await Promise.all([config.flush(), textFileStore.drain(), reportService?.drain()]);
   },
   stopBackgroundServices: async () => {
     await Promise.all([fileWatcher?.stop(), scheduler?.stop()]);
@@ -55,6 +60,7 @@ if (lifecycle.acquireSingleInstance()) {
         mkdir(dataPaths.logsDirectory, { recursive: true }),
       ]);
       await config.initialize();
+      installLocalOnlyNetworkPolicy(session.defaultSession, logger, process.env.VITE_DEV_SERVER_URL);
 
       const todayRepository = new TodayRepository(dataPaths.todayFile, textFileStore);
       const weekRepository = new WeekRepository(dataPaths.weeksDirectory, textFileStore);
@@ -77,13 +83,24 @@ if (lifecycle.acquireSingleInstance()) {
         broadcast: (event) => windowManager?.broadcastDataChanged(event),
       });
       scheduler = new ArchiveScheduler({ archive: archiveService, powerMonitor, logger });
+      reportService = new ReportService({
+        weeklyService,
+        agentProvider: { getAgent: () => createReportAgent(config.get(), logger) },
+        dialog: {
+          showSaveDialog: (window, options) =>
+            window ? dialog.showSaveDialog(window, options) : dialog.showSaveDialog(options),
+        },
+        shell,
+        logger,
+        getDialogWindow: () => windowManager?.getActiveWindow(),
+      });
 
       const commands: DesktopCommands = {
         toggleNote: () => windowManager?.toggleFloatingNote(),
         showNote: () => windowManager?.showFloatingNote(),
         openWeekly: () => void windowManager?.openWeekly(),
         exportCurrentWeek: () => {
-          logger.info('Report export command requested before ReportService is implemented');
+          void reportService?.exportCurrentWeekFromMenu();
         },
         openDataDirectory: () => void shellActions.openDataDirectory().catch((error) => logger.error('Data directory could not be opened', { error })),
         setAlwaysOnTop: (enabled) => {
@@ -111,6 +128,7 @@ if (lifecycle.acquireSingleInstance()) {
         onWeekAppWrite: (isoYear, isoWeek, revision) =>
           fileWatcher?.markAppWrite(getCurrentWeekPath(dataPaths, isoYear, isoWeek), revision),
       });
+      registerReportHandlers({ ipcMain, reportService, logger });
       await scheduler.start();
       await fileWatcher.start();
       await windowManager.createFloatingNote();

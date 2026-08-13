@@ -151,6 +151,14 @@ export class WindowManager {
     return this.#options.config.get().always_on_top;
   }
 
+  getActiveWindow(): BrowserWindow | undefined {
+    const focused = BrowserWindow.getFocusedWindow();
+    if (focused && !focused.isDestroyed()) return focused;
+    if (this.#weeklyWindow && !this.#weeklyWindow.isDestroyed()) return this.#weeklyWindow;
+    if (this.#noteWindow && !this.#noteWindow.isDestroyed()) return this.#noteWindow;
+    return undefined;
+  }
+
   broadcastDataChanged(event: DataChangedEvent): void {
     for (const window of [this.#noteWindow, this.#weeklyWindow]) {
       if (window && !window.isDestroyed()) window.webContents.send(IPC.dataChanged, event);
@@ -180,6 +188,16 @@ export class WindowManager {
 
   async #loadView(window: BrowserWindow, view: 'note' | 'weekly'): Promise<void> {
     try {
+      window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+      window.webContents.on('will-navigate', (event, targetUrl) => {
+        const allowedOrigin = this.#options.rendererDevUrl
+          ? new URL(this.#options.rendererDevUrl).origin
+          : 'file://';
+        if (allowedOrigin === 'file://' ? !targetUrl.startsWith('file://') : new URL(targetUrl).origin !== allowedOrigin) {
+          event.preventDefault();
+          this.#options.logger.warn('Blocked renderer navigation', { view, targetUrl });
+        }
+      });
       if (this.#options.rendererDevUrl) {
         const url = new URL(this.#options.rendererDevUrl);
         url.searchParams.set('view', view);

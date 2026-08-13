@@ -1,14 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC } from '../main/ipc/channels';
 import type { DataChangedEvent } from '../shared/domain';
-import type { ApiResult } from '../shared/results';
 import type { ElectronAPI } from './apiTypes';
-
-const notImplemented = <T>(feature: string): Promise<ApiResult<T>> =>
-  Promise.resolve({
-    ok: false,
-    error: { code: 'NOT_IMPLEMENTED', message: `${feature}尚未在当前开发阶段实现` },
-  });
 
 const api: ElectronAPI = {
   healthCheck: () => ipcRenderer.invoke(IPC.healthCheck),
@@ -29,9 +22,9 @@ const api: ElectronAPI = {
     get: (input) => ipcRenderer.invoke(IPC.weekGet, input),
   },
   report: {
-    export: () => Promise.resolve({ status: 'failed', message: '周报导出尚未在当前开发阶段实现' }),
-    openLast: () => notImplemented('打开最近导出的周报'),
-    revealLast: () => notImplemented('定位最近导出的周报'),
+    export: (input) => ipcRenderer.invoke(IPC.reportExport, input),
+    openLast: () => ipcRenderer.invoke(IPC.reportOpenLast),
+    revealLast: () => ipcRenderer.invoke(IPC.reportRevealLast),
   },
   window: {
     openWeekly: () => ipcRenderer.invoke(IPC.windowOpenWeekly),

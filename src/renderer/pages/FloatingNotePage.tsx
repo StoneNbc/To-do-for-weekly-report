@@ -6,10 +6,11 @@ import type {
   TodaySnapshot,
   TodayTaskView,
 } from '../../shared/domain';
-import type { ApiResult } from '../../shared/results';
+import type { ApiResult, ExportReportResult } from '../../shared/results';
 import { addLocalDays, getIsoWeekInfo, getLocalDate } from '../../shared/dateUtils';
 import { AddTaskInput } from '../components/AddTaskInput';
 import { CompletedSection } from '../components/CompletedSection';
+import { ExportResultToast } from '../components/ExportResultToast';
 import { HistoricalInput } from '../components/HistoricalInput';
 import { StatusBanner } from '../components/StatusBanner';
 import { TaskItem } from '../components/TaskItem';
@@ -30,6 +31,8 @@ export function FloatingNotePage() {
   const [state, dispatch] = useReducer(noteReducer, today, createInitialNoteState);
   const [menuOpen, setMenuOpen] = useState(false);
   const [alwaysOnTop, setAlwaysOnTop] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [exportResult, setExportResult] = useState<ExportReportResult | null>(null);
   const requestTokenRef = useRef(0);
   const watcherEchoRef = useRef<{ scope: 'today' | 'week'; expiresAt: number } | null>(null);
 
@@ -141,19 +144,33 @@ export function FloatingNotePage() {
     return applyMutation(() => api.history.edit(input));
   };
 
+  const exportCurrentWeek = useCallback(async () => {
+    setMenuOpen(false);
+    setExportResult(null);
+    setExporting(true);
+    const week = getIsoWeekInfo(today);
+    try {
+      setExportResult(await api.report.export({ isoYear: week.isoYear, isoWeek: week.isoWeek }));
+    } finally {
+      setExporting(false);
+    }
+  }, [api, today]);
+
   const menu = useMemo(() => menuOpen ? (
-    <div className="no-drag absolute right-3 top-12 z-20 w-44 rounded-xl border border-amber-900/10 bg-white p-1.5 text-sm shadow-xl" role="menu">
+    <div
+      className="no-drag absolute right-3 top-12 z-20 max-h-[calc(100vh-4rem)] w-44 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-xl border border-amber-900/10 bg-white p-1.5 text-sm shadow-xl"
+      id="floating-note-menu"
+      role="menu"
+    >
       <button className="menu-item" onClick={() => void api.window.openWeekly()} role="menuitem" type="button">打开周记</button>
       <button
         className="menu-item"
-        onClick={() => {
-          const week = getIsoWeekInfo(today);
-          void api.report.export({ isoYear: week.isoYear, isoWeek: week.isoWeek });
-        }}
+        disabled={exporting}
+        onClick={() => void exportCurrentWeek()}
         role="menuitem"
         type="button"
       >
-        导出本周周报
+        {exporting ? '正在准备周报…' : '导出本周周报'}
       </button>
       <button className="menu-item" onClick={() => void api.app.openDataFolder()} role="menuitem" type="button">打开数据文件夹</button>
       <button
@@ -172,7 +189,7 @@ export function FloatingNotePage() {
       <button className="menu-item" disabled role="menuitem" type="button">设置（即将推出）</button>
       <button className="menu-item text-red-700" onClick={() => void api.app.quit()} role="menuitem" type="button">退出</button>
     </div>
-  ) : null, [alwaysOnTop, api, menuOpen, today]);
+  ) : null, [alwaysOnTop, api, exportCurrentWeek, exporting, menuOpen]);
 
   return (
     <main className="relative flex h-screen min-h-[280px] flex-col overflow-hidden bg-note p-3 text-stone-800">
@@ -186,10 +203,23 @@ export function FloatingNotePage() {
         onOpenMenu={() => setMenuOpen((open) => !open)}
         onPreviousDay={() => void loadHistory(addLocalDays(state.selectedDate, -1))}
         onToday={() => void loadToday()}
+        menuOpen={menuOpen}
         selectedDate={state.selectedDate}
       />
       {menu}
       <StatusBanner error={state.error} notice={state.notice} onRetry={refresh} />
+
+      {exportResult ? (
+        <div className="no-drag absolute inset-x-3 top-[3.35rem] z-10 max-h-[calc(100vh-4.25rem)] overflow-y-auto">
+          <ExportResultToast
+            compact
+            onDismiss={() => setExportResult(null)}
+            onOpen={() => void api.report.openLast()}
+            onReveal={() => void api.report.revealLast()}
+            result={exportResult}
+          />
+        </div>
+      ) : null}
 
       <section className="min-h-0 flex-1 overflow-y-auto py-2" aria-busy={state.loading || saving}>
         {state.loading ? (

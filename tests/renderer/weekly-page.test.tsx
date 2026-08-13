@@ -9,12 +9,12 @@ import { ElectronAPIProvider } from '../../src/renderer/state/providers';
 
 function renderPage(scenario: Parameters<typeof createMockElectronAPI>[0] = 'default') {
   const controller = createMockElectronAPI(scenario);
-  render(
+  const renderResult = render(
     <ElectronAPIProvider api={controller.api}>
       <WeeklyPage />
     </ElectronAPIProvider>,
   );
-  return controller;
+  return { ...controller, ...renderResult };
 }
 
 describe('WeeklyPage', () => {
@@ -39,8 +39,10 @@ describe('WeeklyPage', () => {
     const button = await screen.findByRole('button', { name: '一键导出周报 TXT' });
     fireEvent.click(button);
 
-    expect(await screen.findByText('已取消导出。')).toHaveAttribute('role', 'status');
+    expect(await screen.findByLabelText('导出已取消')).toHaveTextContent('未创建任何文件');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '完成' }));
+    expect(screen.queryByLabelText('导出已取消')).not.toBeInTheDocument();
   });
 
   it('切换历史周后只响应所选周事件，忽略 today 与其他周事件', async () => {
@@ -85,6 +87,7 @@ describe('WeeklyPage', () => {
     fireEvent.click(button);
 
     expect(await screen.findByLabelText('导出成功')).toHaveTextContent('周报-2026年第33周.txt');
+    expect(screen.getByLabelText('导出成功')).toHaveTextContent('文件不会自动打开');
     expect(exportReport).toHaveBeenCalledWith(expect.objectContaining({ isoYear: 2026, isoWeek: 33 }));
     fireEvent.click(screen.getByRole('button', { name: '打开文件' }));
     fireEvent.click(screen.getByRole('button', { name: '打开所在文件夹' }));
@@ -98,5 +101,31 @@ describe('WeeklyPage', () => {
     renderPage('io-error');
     expect(await screen.findByRole('alert')).toHaveTextContent('暂时无法读写本地文件');
     expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument();
+  });
+
+  it('导出 failed 显示明确错误但不出现打开操作', async () => {
+    const controller = renderPage();
+    controller.api.report.export = vi.fn().mockResolvedValue({
+      status: 'failed',
+      message: '保存位置不可写',
+    });
+    const button = await screen.findByRole('button', { name: '一键导出周报 TXT' });
+    fireEvent.click(button);
+
+    expect(await screen.findByLabelText('导出失败')).toHaveTextContent('保存位置不可写');
+    expect(screen.queryByRole('button', { name: '打开文件' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '打开所在文件夹' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    expect(screen.queryByLabelText('导出失败')).not.toBeInTheDocument();
+  });
+
+  it('窄窗口布局使用可收缩容器且主要图标按钮都有中文标签', async () => {
+    const { container } = renderPage();
+    await screen.findByRole('heading', { name: '周三' });
+
+    expect(container.firstElementChild).toHaveClass('min-w-0', 'overflow-x-hidden');
+    expect(screen.getByRole('button', { name: '查看上一周' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '查看下一周' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '一键导出周报 TXT' })).toBeInTheDocument();
   });
 });

@@ -55,7 +55,7 @@ describe('FloatingNotePage', () => {
     expect(await screen.findByRole('checkbox', { name: '撤销完成：准备周会材料' })).toBeChecked();
 
     fireEvent.click(screen.getByRole('button', { name: /已完成（6）/ }));
-    fireEvent.keyDown(screen.getByRole('button', { name: '编辑任务：回复客户邮件' }), { key: 'F2' });
+    fireEvent.keyDown(screen.getByRole('button', { name: '任务内容：回复客户邮件' }), { key: 'F2' });
     const editing = screen.getByRole('textbox', { name: '编辑任务：回复客户邮件' });
     fireEvent.change(editing, { target: { value: '回复重点客户邮件' } });
     fireEvent.keyDown(editing, { key: 'Enter' });
@@ -91,7 +91,8 @@ describe('FloatingNotePage', () => {
     await screen.findByRole('list', { name: '今日待办' });
     fireEvent.click(screen.getByRole('button', { name: '查看前一天' }));
 
-    expect(await screen.findByRole('button', { name: /历史记录 · 返回今天/ })).toBeInTheDocument();
+    expect(await screen.findByRole('status', { name: '当前正在查看历史记录' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '返回今天' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '补录已完成事项' })).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: '添加今日任务' })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
@@ -117,7 +118,7 @@ describe('FloatingNotePage', () => {
       completedAt: '20:15',
     }));
 
-    fireEvent.keyDown(screen.getByRole('button', { name: '编辑任务：完成界面原型' }), { key: 'F2' });
+    fireEvent.keyDown(screen.getByRole('button', { name: '任务内容：完成界面原型' }), { key: 'F2' });
     fireEvent.change(screen.getByRole('textbox', { name: '编辑任务：完成界面原型' }), {
       target: { value: '完成最终界面原型' },
     });
@@ -185,5 +186,56 @@ describe('FloatingNotePage', () => {
     }
     await waitFor(() => expect(getToday.mock.calls.length).toBeGreaterThan(0));
     await waitFor(() => expect(getToday.mock.calls.length).toBeLessThanOrEqual(2));
+  });
+
+  it('菜单导出成功后显示路径、打开操作和“不自动打开”说明', async () => {
+    const controller = renderPage();
+    const exportReport = vi.spyOn(controller.api.report, 'export');
+    const openLast = vi.spyOn(controller.api.report, 'openLast');
+    const revealLast = vi.spyOn(controller.api.report, 'revealLast');
+    await screen.findByRole('list', { name: '今日待办' });
+    const menuButton = screen.getByRole('button', { name: '打开便利贴菜单' });
+    expect(menuButton).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(menuButton);
+    expect(screen.getByRole('button', { name: '关闭便利贴菜单' })).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(screen.getByRole('menuitem', { name: '导出本周周报' }));
+
+    expect(await screen.findByLabelText('导出成功')).toHaveTextContent('周报-2026年第33周.txt');
+    expect(screen.getByLabelText('导出成功')).toHaveTextContent('文件不会自动打开');
+    expect(exportReport).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole('button', { name: '打开文件' }));
+    fireEvent.click(screen.getByRole('button', { name: '打开所在文件夹' }));
+    expect(openLast).toHaveBeenCalledOnce();
+    expect(revealLast).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole('button', { name: '完成' }));
+    expect(screen.queryByLabelText('导出成功')).not.toBeInTheDocument();
+  });
+
+  it('菜单导出取消不报错且 failed 有明确错误', async () => {
+    const cancelled = renderPage('export-cancelled');
+    await screen.findByRole('list', { name: '今日待办' });
+    fireEvent.click(screen.getByRole('button', { name: '打开便利贴菜单' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '导出本周周报' }));
+    expect(await screen.findByLabelText('导出已取消')).toHaveAttribute('role', 'status');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '完成' }));
+    cancelled.api.report.export = vi.fn().mockResolvedValue({ status: 'failed', message: '磁盘空间不足' });
+    fireEvent.click(screen.getByRole('button', { name: '打开便利贴菜单' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '导出本周周报' }));
+    expect(await screen.findByLabelText('导出失败')).toHaveTextContent('磁盘空间不足');
+    expect(screen.queryByRole('button', { name: '打开文件' })).not.toBeInTheDocument();
+  });
+
+  it('280px 最小窗口所需控件采用可收缩/滚动布局，并具备图标中文标签', async () => {
+    const { container } = render(
+      <ElectronAPIProvider api={createMockElectronAPI().api}>
+        <FloatingNotePage />
+      </ElectronAPIProvider>,
+    );
+    await screen.findByRole('list', { name: '今日待办' });
+    expect(container.firstElementChild).toHaveClass('min-h-[280px]', 'overflow-hidden');
+    expect(screen.getByRole('button', { name: '查看前一天' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '查看后一天' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '打开便利贴菜单' })).toBeInTheDocument();
   });
 });
