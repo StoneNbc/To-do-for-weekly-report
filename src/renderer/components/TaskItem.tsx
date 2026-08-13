@@ -1,0 +1,127 @@
+import { useRef, useState, type KeyboardEvent } from 'react';
+import type { TaskLocator } from '../../shared/domain';
+
+export interface TaskItemProps {
+  locator: TaskLocator;
+  content: string;
+  completed: boolean;
+  completedAt?: string | undefined;
+  readOnlyCompletion?: boolean;
+  disabled?: boolean | undefined;
+  onToggle?: (locator: TaskLocator) => void;
+  onEdit: (locator: TaskLocator, content: string, completedAt?: string) => Promise<boolean> | boolean;
+  onDelete: (locator: TaskLocator) => void;
+}
+
+export function TaskItem({
+  locator,
+  content,
+  completed,
+  completedAt,
+  readOnlyCompletion = false,
+  disabled = false,
+  onToggle,
+  onEdit,
+  onDelete,
+}: TaskItemProps) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(content);
+  const committingRef = useRef(false);
+  const cancelledRef = useRef(false);
+
+  const cancel = () => {
+    cancelledRef.current = true;
+    setDraft(content);
+    setEditing(false);
+  };
+
+  const commit = async () => {
+    if (cancelledRef.current || committingRef.current) return;
+    const normalized = draft.trim();
+    if (!normalized || normalized === content) {
+      setDraft(content);
+      setEditing(false);
+      return;
+    }
+    committingRef.current = true;
+    const saved = await onEdit(locator, normalized, completedAt);
+    committingRef.current = false;
+    if (saved) setEditing(false);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      cancel();
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      void commit();
+    }
+  };
+
+  return (
+    <li className="task-row no-drag group flex min-h-10 items-center gap-2 rounded-xl px-2 py-1.5 hover:bg-white/45 focus-within:bg-white/55">
+      {readOnlyCompletion ? (
+        <span className="grid h-5 w-5 shrink-0 place-items-center text-emerald-700" aria-hidden="true">
+          ✓
+        </span>
+      ) : (
+        <input
+          aria-label={`${completed ? '撤销完成' : '完成任务'}：${content}`}
+          checked={completed}
+          className="h-4 w-4 shrink-0 accent-amber-700"
+          disabled={disabled}
+          onChange={() => onToggle?.(locator)}
+          type="checkbox"
+        />
+      )}
+
+      <div className="min-w-0 flex-1">
+        {editing ? (
+          <input
+            aria-label={`编辑任务：${content}`}
+            autoFocus
+            className="w-full rounded-md border border-amber-500 bg-white/80 px-2 py-1 text-sm outline-none ring-2 ring-amber-300"
+            disabled={disabled}
+            onBlur={() => void commit()}
+            onChange={(event) => setDraft(event.target.value)}
+            onFocus={() => {
+              cancelledRef.current = false;
+            }}
+            onKeyDown={handleKeyDown}
+            value={draft}
+          />
+        ) : (
+          <button
+            aria-label={`编辑任务：${content}`}
+            className={`block w-full truncate rounded text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-amber-600 ${
+              completed ? 'text-stone-500 line-through decoration-stone-400' : 'text-stone-800'
+            }`}
+            disabled={disabled}
+            onDoubleClick={() => setEditing(true)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === 'F2') setEditing(true);
+            }}
+            title="双击或按 F2 编辑"
+            type="button"
+          >
+            {content}
+          </button>
+        )}
+      </div>
+
+      {completedAt ? (
+        <time className="shrink-0 text-[11px] tabular-nums text-stone-400">{completedAt}</time>
+      ) : null}
+      <button
+        aria-label={`删除任务：${content}`}
+        className="delete-task rounded-md px-1.5 py-1 text-stone-400 opacity-0 outline-none hover:bg-red-50 hover:text-red-700 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-red-500 group-hover:opacity-100"
+        disabled={disabled}
+        onClick={() => onDelete(locator)}
+        type="button"
+      >
+        ×
+      </button>
+    </li>
+  );
+}

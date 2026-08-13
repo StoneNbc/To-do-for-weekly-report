@@ -1,30 +1,40 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC } from '../main/ipc/channels';
 import type { DataChangedEvent } from '../shared/domain';
+import type { ApiResult } from '../shared/results';
 import type { ElectronAPI } from './apiTypes';
+
+const notImplemented = <T>(feature: string): Promise<ApiResult<T>> =>
+  Promise.resolve({
+    ok: false,
+    error: {
+      code: 'NOT_IMPLEMENTED',
+      message: `${feature}尚未在当前开发阶段实现`,
+    },
+  });
 
 const api: ElectronAPI = {
   healthCheck: () => ipcRenderer.invoke(IPC.healthCheck),
   today: {
-    get: () => ipcRenderer.invoke(IPC.todayGet),
-    add: (content) => ipcRenderer.invoke(IPC.todayAdd, content),
-    toggle: (locator) => ipcRenderer.invoke(IPC.todayToggle, locator),
-    edit: (input) => ipcRenderer.invoke(IPC.todayEdit, input),
-    delete: (locator) => ipcRenderer.invoke(IPC.todayDelete, locator),
+    get: () => notImplemented('今日任务读取'),
+    add: () => notImplemented('今日任务新增'),
+    toggle: () => notImplemented('今日任务状态切换'),
+    edit: () => notImplemented('今日任务编辑'),
+    delete: () => notImplemented('今日任务删除'),
   },
   history: {
-    getDay: (date) => ipcRenderer.invoke(IPC.historyGetDay, date),
-    add: (input) => ipcRenderer.invoke(IPC.historyAdd, input),
-    edit: (input) => ipcRenderer.invoke(IPC.historyEdit, input),
-    delete: (input) => ipcRenderer.invoke(IPC.historyDelete, input),
+    getDay: () => notImplemented('历史记录读取'),
+    add: () => notImplemented('历史记录新增'),
+    edit: () => notImplemented('历史记录编辑'),
+    delete: () => notImplemented('历史记录删除'),
   },
   week: {
-    get: (input) => ipcRenderer.invoke(IPC.weekGet, input),
+    get: () => notImplemented('周记读取'),
   },
   report: {
-    export: (input) => ipcRenderer.invoke(IPC.reportExport, input),
-    openLast: () => ipcRenderer.invoke(IPC.reportOpenLast),
-    revealLast: () => ipcRenderer.invoke(IPC.reportRevealLast),
+    export: () => Promise.resolve({ status: 'failed', message: '周报导出尚未在当前开发阶段实现' }),
+    openLast: () => notImplemented('打开最近导出的周报'),
+    revealLast: () => notImplemented('定位最近导出的周报'),
   },
   window: {
     openWeekly: () => ipcRenderer.invoke(IPC.windowOpenWeekly),

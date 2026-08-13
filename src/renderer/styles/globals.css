@@ -16,6 +16,15 @@ body,
   min-height: 100%;
 }
 
+* {
+  box-sizing: border-box;
+}
+
+button,
+input {
+  font: inherit;
+}
+
 .drag-region {
   -webkit-app-region: drag;
 }
@@ -26,4 +35,33 @@ textarea,
 [role='button'],
 .no-drag {
   -webkit-app-region: no-drag;
+}
+
+@layer components {
+  .icon-button {
+    @apply grid h-8 min-w-8 place-items-center rounded-lg px-1 text-sm text-stone-600 outline-none hover:bg-white/55 focus-visible:ring-2 focus-visible:ring-amber-600 disabled:cursor-not-allowed disabled:opacity-30;
+  }
+
+  .weekly-icon-button {
+    @apply grid h-9 w-9 shrink-0 place-items-center rounded-full border border-stone-200 bg-white text-stone-600 outline-none hover:bg-stone-100 focus-visible:ring-2 focus-visible:ring-amber-600 disabled:cursor-not-allowed disabled:opacity-30;
+  }
+
+  .menu-item {
+    @apply block w-full rounded-lg px-3 py-2 text-left outline-none hover:bg-amber-50 focus-visible:ring-2 focus-visible:ring-amber-600 disabled:text-stone-300;
+  }
+
+  .toast-button {
+    @apply rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium outline-none hover:bg-emerald-100 focus-visible:ring-2 focus-visible:ring-emerald-600;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
