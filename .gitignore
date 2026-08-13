@@ -1,0 +1,15 @@
+node_modules/
+.pnpm-store/
+dist/
+dist-electron/
+release/
+coverage/
+playwright-report/
+test-results/
+data/
+*.log
+.DS_Store
+*.tsbuildinfo
+.env
+.env.*
+!.env.example

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "cleanup_time": "00:00",
+  "agent": "template",
+  "template_path": null,
+  "always_on_top": true,
+  "window_bounds": null,
+  "completed_expanded": false
+}
