@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import './setup';
 import { createMockElectronAPI } from '../../src/renderer/dev/mockElectronAPI';
 import { FloatingNotePage } from '../../src/renderer/pages/FloatingNotePage';
@@ -32,13 +32,58 @@ describe('FloatingNotePage', () => {
   });
 
   it('添加任务后使用 API 返回快照更新页面', async () => {
-    renderPage();
+    const controller = renderPage();
+    const add = vi.spyOn(controller.api.today, 'add');
     const input = await screen.findByRole('textbox', { name: '添加今日任务' });
     fireEvent.change(input, { target: { value: '  新增本地任务  ' } });
     fireEvent.click(screen.getByRole('button', { name: '添加任务' }));
 
     expect(await screen.findByText('新增本地任务')).toBeInTheDocument();
     expect(input).toHaveValue('');
+    expect(add).toHaveBeenCalledWith('新增本地任务');
+  });
+
+  it('完成、编辑和删除均用 locator 调用真实契约', async () => {
+    const controller = renderPage();
+    const toggle = vi.spyOn(controller.api.today, 'toggle');
+    const edit = vi.spyOn(controller.api.today, 'edit');
+    const remove = vi.spyOn(controller.api.today, 'delete');
+    await screen.findByRole('list', { name: '今日待办' });
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '完成任务：准备周会材料' }));
+    await waitFor(() => expect(toggle).toHaveBeenCalledWith({ line: 1, revision: 'today-r1' }));
+    expect(await screen.findByRole('checkbox', { name: '撤销完成：准备周会材料' })).toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: /已完成（6）/ }));
+    fireEvent.keyDown(screen.getByRole('button', { name: '编辑任务：回复客户邮件' }), { key: 'F2' });
+    const editing = screen.getByRole('textbox', { name: '编辑任务：回复客户邮件' });
+    fireEvent.change(editing, { target: { value: '回复重点客户邮件' } });
+    fireEvent.keyDown(editing, { key: 'Enter' });
+    await waitFor(() => expect(edit).toHaveBeenCalledWith({
+      locator: expect.objectContaining({ line: 2 }),
+      content: '回复重点客户邮件',
+      completedAt: '14:20',
+    }));
+
+    fireEvent.click(await screen.findByRole('button', { name: '删除任务：回复重点客户邮件' }));
+    await waitFor(() => expect(remove).toHaveBeenCalledWith(expect.objectContaining({ line: 2 })));
+    expect(screen.queryByText('回复重点客户邮件')).not.toBeInTheDocument();
+  });
+
+  it('变更成功后抑制一次自身 app-write watcher 回声', async () => {
+    const controller = renderPage();
+    const getToday = vi.spyOn(controller.api.today, 'get');
+    await screen.findByRole('list', { name: '今日待办' });
+    fireEvent.change(screen.getByRole('textbox', { name: '添加今日任务' }), {
+      target: { value: '验证 watcher 回声' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '添加任务' }));
+    await screen.findByText('验证 watcher 回声');
+    const callsAfterMutation = getToday.mock.calls.length;
+
+    controller.emit({ scope: 'today', reason: 'app-write' });
+    await Promise.resolve();
+    expect(getToday).toHaveBeenCalledTimes(callsAfterMutation);
   });
 
   it('历史模式有明确标识和补录入口，不出现未完成任务语义', async () => {
@@ -50,6 +95,47 @@ describe('FloatingNotePage', () => {
     expect(screen.getByRole('textbox', { name: '补录已完成事项' })).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: '添加今日任务' })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  it('历史补录、带时间编辑和删除使用所选日期与 locator', async () => {
+    const controller = renderPage();
+    const add = vi.spyOn(controller.api.history, 'add');
+    const edit = vi.spyOn(controller.api.history, 'edit');
+    const remove = vi.spyOn(controller.api.history, 'delete');
+    await screen.findByRole('list', { name: '今日待办' });
+    fireEvent.click(screen.getByRole('button', { name: '查看前一天' }));
+    await screen.findByRole('list', { name: '历史完成记录' });
+
+    fireEvent.change(screen.getByRole('textbox', { name: '补录已完成事项' }), {
+      target: { value: '补录昨日评审' },
+    });
+    fireEvent.change(screen.getByLabelText('完成时间（可选）'), { target: { value: '20:15' } });
+    fireEvent.click(screen.getByRole('button', { name: '补录完成事项' }));
+    await waitFor(() => expect(add).toHaveBeenCalledWith({
+      date: '2026-08-12',
+      content: '补录昨日评审',
+      completedAt: '20:15',
+    }));
+
+    fireEvent.keyDown(screen.getByRole('button', { name: '编辑任务：完成界面原型' }), { key: 'F2' });
+    fireEvent.change(screen.getByRole('textbox', { name: '编辑任务：完成界面原型' }), {
+      target: { value: '完成最终界面原型' },
+    });
+    const timeInput = screen.getByLabelText('编辑完成时间：完成界面原型');
+    fireEvent.change(timeInput, { target: { value: '16:45' } });
+    fireEvent.keyDown(timeInput, { key: 'Enter' });
+    await waitFor(() => expect(edit).toHaveBeenCalledWith({
+      date: '2026-08-12',
+      locator: expect.objectContaining({ line: 4 }),
+      content: '完成最终界面原型',
+      completedAt: '16:45',
+    }));
+
+    fireEvent.click(await screen.findByRole('button', { name: '删除任务：完成最终界面原型' }));
+    await waitFor(() => expect(remove).toHaveBeenCalledWith({
+      date: '2026-08-12',
+      locator: expect.objectContaining({ line: 4 }),
+    }));
   });
 
   it('FILE_CHANGED 时载入最新快照并提示用户重新操作', async () => {
@@ -70,9 +156,34 @@ describe('FloatingNotePage', () => {
 
   it('FILE_CHANGED 之外也可响应外部文件变化事件', async () => {
     const controller = renderPage();
+    const getToday = vi.spyOn(controller.api.today, 'get');
     await screen.findByRole('list', { name: '今日待办' });
-    controller.emit({ scope: 'today', reason: 'external-edit' });
+    const initialCalls = getToday.mock.calls.length;
+    controller.emit({ scope: 'week', isoYear: 2026, isoWeek: 33, reason: 'external-edit' });
+    await Promise.resolve();
+    expect(getToday).toHaveBeenCalledTimes(initialCalls);
 
-    await waitFor(() => expect(screen.getByRole('list', { name: '今日待办' })).toBeInTheDocument());
+    controller.emit({ scope: 'today', reason: 'external-edit' });
+    await waitFor(() => expect(getToday).toHaveBeenCalledTimes(initialCalls + 1));
+  });
+
+  it('将文件监听事件风暴合并为一个进行中请求和最多一个尾随请求', async () => {
+    const controller = renderPage();
+    const originalGet = controller.api.today.get.bind(controller.api.today);
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const getToday = vi.spyOn(controller.api.today, 'get').mockImplementation(async () => {
+      await gate;
+      return originalGet();
+    });
+
+    release?.();
+    await screen.findByRole('list', { name: '今日待办' });
+    getToday.mockClear();
+    for (let index = 0; index < 8; index += 1) {
+      controller.emit({ scope: 'today', reason: 'external-edit' });
+    }
+    await waitFor(() => expect(getToday.mock.calls.length).toBeGreaterThan(0));
+    await waitFor(() => expect(getToday.mock.calls.length).toBeLessThanOrEqual(2));
   });
 });

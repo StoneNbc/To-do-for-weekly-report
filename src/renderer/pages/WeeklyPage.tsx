@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { getDateFromIsoWeek, getIsoWeekInfo, getLocalDate } from '../../shared/dateUtils';
 import type { IsoWeekInput } from '../../preload/apiTypes';
 import { DaySection } from '../components/DaySection';
@@ -7,6 +7,7 @@ import { StatusBanner } from '../components/StatusBanner';
 import { WeekNavigator } from '../components/WeekNavigator';
 import { useElectronEvents } from '../hooks/useElectronEvents';
 import { useElectronAPI } from '../hooks/useElectronAPI';
+import { useRefreshQueue } from '../hooks/useRefreshQueue';
 import { createInitialWeeklyState, weeklyReducer } from '../state/weeklyReducer';
 
 function adjacentWeek(selection: IsoWeekInput, offset: -1 | 1): IsoWeekInput {
@@ -25,30 +26,39 @@ export function WeeklyPage() {
     [currentWeek.isoWeek, currentWeek.isoYear],
   );
   const [state, dispatch] = useReducer(weeklyReducer, initialSelection, createInitialWeeklyState);
+  const requestTokenRef = useRef(0);
 
   const load = useCallback(async (selection: IsoWeekInput) => {
+    const requestToken = ++requestTokenRef.current;
     dispatch({ type: 'load-start', selection });
     const result = await api.week.get(selection);
+    if (requestToken !== requestTokenRef.current) return;
     if (result.ok) dispatch({ type: 'load-success', snapshot: result.data });
     else dispatch({ type: 'load-failure', error: result.error });
   }, [api]);
+  const refreshSelection = useCallback(
+    () => load(state.selection),
+    [load, state.selection],
+  );
+  const queueRefresh = useRefreshQueue(refreshSelection);
 
   useEffect(() => {
     void load(initialSelection);
   }, [initialSelection, load]);
 
+  const isCurrentWeek = state.selection.isoYear === currentWeek.isoYear && state.selection.isoWeek === currentWeek.isoWeek;
+
   useElectronEvents(useCallback((event) => {
     if (
-      event.scope === 'today' ||
+      (event.scope === 'today' && isCurrentWeek) ||
       (event.scope === 'week' &&
         (event.isoYear === undefined || event.isoYear === state.selection.isoYear) &&
         (event.isoWeek === undefined || event.isoWeek === state.selection.isoWeek))
     ) {
-      void load(state.selection);
+      queueRefresh();
     }
-  }, [load, state.selection]));
+  }, [isCurrentWeek, queueRefresh, state.selection]));
 
-  const isCurrentWeek = state.selection.isoYear === currentWeek.isoYear && state.selection.isoWeek === currentWeek.isoWeek;
   const range = state.snapshot
     ? `${state.snapshot.weekStart.replaceAll('-', '.')} — ${state.snapshot.weekEnd.replaceAll('-', '.')}`
     : '正在读取周范围…';
@@ -87,7 +97,7 @@ export function WeeklyPage() {
       </header>
 
       <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 px-6 py-6">
-        <StatusBanner error={state.error} onRetry={() => void load(state.selection)} />
+        <StatusBanner error={state.error} onRetry={refreshSelection} />
         {state.exportResult ? (
           <ExportResultToast
             onDismiss={() => dispatch({ type: 'dismiss-export' })}

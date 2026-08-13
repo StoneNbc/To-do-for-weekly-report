@@ -39,6 +39,11 @@ export interface HistoricalTaskInput {
   completedAt?: string;
 }
 
+export interface ArchivedTaskInput {
+  content: string;
+  completedAt?: string;
+}
+
 export class WeekRepository {
   constructor(
     readonly weeksDirectory: string,
@@ -111,6 +116,37 @@ export class WeekRepository {
     });
     const document = parseWeek(result.snapshot.text, { isoYear, isoWeek, file: path });
     return this.daySnapshot(date, result.snapshot.revision, document);
+  }
+
+  async appendArchivedTasks(
+    date: string,
+    tasks: readonly ArchivedTaskInput[],
+  ): Promise<DayRecordSnapshot> {
+    assertValidIsoDate(date);
+    const normalized = tasks.map((task) => {
+      const value: ArchivedTaskInput = { content: assertValidTaskContent(task.content) };
+      if (task.completedAt !== undefined) {
+        value.completedAt = assertValidLocalTime(task.completedAt);
+      }
+      return value;
+    });
+    if (normalized.length === 0) return this.getDay(date);
+
+    const { isoYear, isoWeek } = getIsoWeekInfo(date);
+    const path = this.getPath(isoYear, isoWeek);
+    const initial = serializeWeek(createEmptyWeekDocument(isoYear, isoWeek));
+    const result = await this.store.updateOrCreate(path, initial, (file) => {
+      const document = parseWeek(file.text, { isoYear, isoWeek, file: path });
+      for (const task of normalized) {
+        insertHistoricalTask(document, date, task.content, task.completedAt);
+      }
+      return { text: serializeWeek(document), result: undefined };
+    });
+    return this.daySnapshot(
+      date,
+      result.snapshot.revision,
+      parseWeek(result.snapshot.text, { isoYear, isoWeek, file: path }),
+    );
   }
 
   async updateHistoricalTask(

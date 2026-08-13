@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type {
   DayRecordSnapshot,
   HistoricalTaskView,
@@ -17,6 +17,7 @@ import { TaskList } from '../components/TaskList';
 import { TitleBar } from '../components/TitleBar';
 import { useElectronEvents } from '../hooks/useElectronEvents';
 import { useElectronAPI } from '../hooks/useElectronAPI';
+import { useRefreshQueue } from '../hooks/useRefreshQueue';
 import { createInitialNoteState, noteReducer, type NoteSnapshot } from '../state/noteReducer';
 
 function isTodaySnapshot(snapshot: NoteSnapshot | null): snapshot is TodaySnapshot {
@@ -29,17 +30,23 @@ export function FloatingNotePage() {
   const [state, dispatch] = useReducer(noteReducer, today, createInitialNoteState);
   const [menuOpen, setMenuOpen] = useState(false);
   const [alwaysOnTop, setAlwaysOnTop] = useState(true);
+  const requestTokenRef = useRef(0);
+  const watcherEchoRef = useRef<{ scope: 'today' | 'week'; expiresAt: number } | null>(null);
 
   const loadToday = useCallback(async () => {
+    const requestToken = ++requestTokenRef.current;
     dispatch({ type: 'load-start', mode: 'today', date: today });
     const result = await api.today.get();
+    if (requestToken !== requestTokenRef.current) return;
     if (result.ok) dispatch({ type: 'load-success', snapshot: result.data });
     else dispatch({ type: 'load-failure', error: result.error });
   }, [api, today]);
 
   const loadHistory = useCallback(async (date: string) => {
+    const requestToken = ++requestTokenRef.current;
     dispatch({ type: 'load-start', mode: 'history', date });
     const result = await api.history.getDay(date);
+    if (requestToken !== requestTokenRef.current) return;
     if (result.ok) dispatch({ type: 'load-success', snapshot: result.data });
     else dispatch({ type: 'load-failure', error: result.error });
   }, [api]);
@@ -48,23 +55,38 @@ export function FloatingNotePage() {
     void loadToday();
   }, [loadToday]);
 
-  const refresh = useCallback(() => {
-    if (state.mode === 'today') void loadToday();
-    else void loadHistory(state.selectedDate);
+  const refresh = useCallback(async () => {
+    if (state.mode === 'today') await loadToday();
+    else await loadHistory(state.selectedDate);
   }, [loadHistory, loadToday, state.mode, state.selectedDate]);
+  const queueRefresh = useRefreshQueue(refresh);
 
   useElectronEvents(useCallback((event) => {
+    // Mutating ElectronAPI methods already return the authoritative snapshot.
+    // Suppress one nearby watcher echo, but keep later app writes from other windows observable.
+    const watcherEcho = watcherEchoRef.current;
+    if (
+      event.reason === 'app-write' && watcherEcho &&
+      watcherEcho.scope === event.scope && Date.now() <= watcherEcho.expiresAt
+    ) {
+      watcherEchoRef.current = null;
+      return;
+    }
+    const selectedWeek = getIsoWeekInfo(state.selectedDate);
+    const affectsSelectedWeek =
+      event.isoYear === undefined || event.isoWeek === undefined ||
+      (event.isoYear === selectedWeek.isoYear && event.isoWeek === selectedWeek.isoWeek);
     const affectsView = state.mode === 'today'
       ? event.scope === 'today'
-      : event.scope === 'week';
+      : event.scope === 'week' && affectsSelectedWeek;
     if (affectsView) {
       dispatch({
         type: 'set-notice',
         notice: event.reason === 'external-edit' ? '数据文件已在外部更新，正在刷新…' : null,
       });
-      refresh();
+      queueRefresh();
     }
-  }, [refresh, state.mode]));
+  }, [queueRefresh, state.mode, state.selectedDate]));
 
   const applyMutation = useCallback(async <T extends NoteSnapshot>(
     operation: () => Promise<ApiResult<T>>,
@@ -73,15 +95,20 @@ export function FloatingNotePage() {
     dispatch({ type: 'mutation-start' });
     const result = await operation();
     if (result.ok) {
+      watcherEchoRef.current = {
+        scope: state.mode === 'today' ? 'today' : 'week',
+        expiresAt: Date.now() + 1_000,
+      };
       dispatch({ type: 'mutation-success', snapshot: result.data, notice: successNotice });
       return true;
     }
     dispatch({ type: 'mutation-failure', error: result.error });
     if (result.error.code === 'FILE_CHANGED') {
+      const requestToken = ++requestTokenRef.current;
       const latest = state.mode === 'today'
         ? await api.today.get()
         : await api.history.getDay(state.selectedDate);
-      if (latest.ok) {
+      if (requestToken === requestTokenRef.current && latest.ok) {
         dispatch({
           type: 'mutation-success',
           snapshot: latest.data,
@@ -242,6 +269,7 @@ function HistoricalRecords({
           locator={task.locator}
           onDelete={onDelete}
           onEdit={(_, content, completedAt) => onEdit(task, content, completedAt)}
+          editableTime
           readOnlyCompletion
         />
       ))}

@@ -6,6 +6,7 @@ export interface AppLifecycleOptions {
   logger: AppLogger;
   showFloatingNote: () => void;
   flushPendingWrites: () => Promise<void>;
+  stopBackgroundServices?: () => Promise<void>;
 }
 
 export class AppLifecycle {
@@ -49,6 +50,7 @@ export class AppLifecycle {
 
   async #finishQuit(): Promise<void> {
     try {
+      await this.#options.stopBackgroundServices?.();
       await this.#options.flushPendingWrites();
     } catch (error) {
       this.#options.logger.error('Pending writes did not flush cleanly during exit', { error });

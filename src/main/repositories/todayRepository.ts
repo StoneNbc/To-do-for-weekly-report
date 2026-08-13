@@ -20,6 +20,15 @@ export class TaskLineNotFoundError extends Error {
   }
 }
 
+export class InvalidTodayFileError extends Error {
+  readonly code = 'INVALID_FILE' as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidTodayFileError';
+  }
+}
+
 export interface TodayReadResult {
   file: TextFileSnapshot;
   document: TodayDocument;
@@ -107,6 +116,26 @@ export class TodayRepository {
       const node = document.nodes[locator.line];
       if (!node || node.kind !== 'task') throw new TaskLineNotFoundError(locator.line);
       document.nodes.splice(locator.line, 1);
+      reindexTodayNodes(document.nodes);
+      return { text: serializeToday(document), result: undefined };
+    });
+    return this.fromFile(result.snapshot);
+  }
+
+  async rollOver(expectedRevision: string, targetDate: string): Promise<TodayReadResult> {
+    assertValidIsoDate(targetDate);
+    const result = await this.store.update(this.path, expectedRevision, (file) => {
+      const document = parseToday(file.text, { file: this.path });
+      const header = document.nodes.find((node) => node.kind === 'header');
+      if (!header || document.fileDate === null) {
+        throw new InvalidTodayFileError('today.txt 缺少合法日期头，无法自动归档');
+      }
+      header.date = targetDate;
+      header.raw = `# ${targetDate}`;
+      document.fileDate = targetDate;
+      document.nodes = document.nodes.filter(
+        (node) => node.kind !== 'task' || !node.completed,
+      );
       reindexTodayNodes(document.nodes);
       return { text: serializeToday(document), result: undefined };
     });

@@ -10,6 +10,8 @@ import type { AppLogger } from './logging/logger';
 import type { MenuFactory } from './menuFactory';
 import { restoreVisibleBounds } from './platform/displayBounds';
 import type { ConfigService } from './services/configService';
+import type { DataChangedEvent } from '../shared/domain';
+import { IPC } from './ipc/channels';
 
 export interface WindowManagerOptions {
   config: ConfigService;
@@ -147,6 +149,12 @@ export class WindowManager {
 
   isAlwaysOnTop(): boolean {
     return this.#options.config.get().always_on_top;
+  }
+
+  broadcastDataChanged(event: DataChangedEvent): void {
+    for (const window of [this.#noteWindow, this.#weeklyWindow]) {
+      if (window && !window.isDestroyed()) window.webContents.send(IPC.dataChanged, event);
+    }
   }
 
   setAlwaysOnTop(enabled: boolean): void {

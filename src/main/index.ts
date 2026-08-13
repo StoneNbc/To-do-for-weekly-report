@@ -1,4 +1,4 @@
-import { app, ipcMain } from 'electron';
+import { app, ipcMain, powerMonitor } from 'electron';
 import { mkdir } from 'node:fs/promises';
 import { AppLifecycle } from './appLifecycle';
 import { IPC } from './ipc/channels';
@@ -7,6 +7,15 @@ import { MenuFactory, type DesktopCommands } from './menuFactory';
 import { resolveDataPaths } from './platform/paths';
 import { createShellActions } from './platform/shellActions';
 import { ConfigService } from './services/configService';
+import { TextFileStore } from './repositories/textFileStore';
+import { TodayRepository } from './repositories/todayRepository';
+import { WeekRepository } from './repositories/weekRepository';
+import { ArchiveService } from './services/archiveService';
+import { TaskService } from './services/taskService';
+import { WeeklyService } from './services/weeklyService';
+import { FileWatcherService, getCurrentWeekPath } from './services/fileWatcher';
+import { ArchiveScheduler } from './services/scheduler';
+import { registerBusinessHandlers } from './ipc/registerHandlers';
 import { TrayManager } from './trayManager';
 import { getDefaultWindowPaths, WindowManager } from './windowManager';
 
@@ -20,13 +29,19 @@ const windowPaths = getDefaultWindowPaths(__dirname);
 
 let windowManager: WindowManager | null = null;
 let trayManager: TrayManager | null = null;
+let fileWatcher: FileWatcherService | null = null;
+let scheduler: ArchiveScheduler | null = null;
+const textFileStore = new TextFileStore();
 const lifecycle = new AppLifecycle({
   app,
   logger,
   showFloatingNote: () => windowManager?.showFloatingNote(),
   flushPendingWrites: async () => {
     windowManager?.saveCurrentBounds();
-    await config.flush();
+    await Promise.all([config.flush(), textFileStore.drain()]);
+  },
+  stopBackgroundServices: async () => {
+    await Promise.all([fileWatcher?.stop(), scheduler?.stop()]);
   },
 });
 
@@ -41,6 +56,12 @@ if (lifecycle.acquireSingleInstance()) {
       ]);
       await config.initialize();
 
+      const todayRepository = new TodayRepository(dataPaths.todayFile, textFileStore);
+      const weekRepository = new WeekRepository(dataPaths.weeksDirectory, textFileStore);
+      const archiveService = new ArchiveService(todayRepository, weekRepository);
+      const taskService = new TaskService(todayRepository, archiveService);
+      const weeklyService = new WeeklyService(weekRepository, todayRepository);
+
       windowManager = new WindowManager({
         config,
         logger,
@@ -49,6 +70,13 @@ if (lifecycle.acquireSingleInstance()) {
         isQuitting: lifecycle.isQuitting,
       });
       const shellActions = createShellActions(dataPaths.root);
+      fileWatcher = new FileWatcherService({
+        paths: dataPaths,
+        todayRepository,
+        logger,
+        broadcast: (event) => windowManager?.broadcastDataChanged(event),
+      });
+      scheduler = new ArchiveScheduler({ archive: archiveService, powerMonitor, logger });
 
       const commands: DesktopCommands = {
         toggleNote: () => windowManager?.toggleFloatingNote(),
@@ -75,6 +103,16 @@ if (lifecycle.acquireSingleInstance()) {
       });
 
       registerPlatformHandlers(windowManager, shellActions.openDataDirectory, lifecycle);
+      registerBusinessHandlers({
+        ipcMain,
+        services: { task: taskService, weekly: weeklyService },
+        logger,
+        onAppWrite: (scope, revision) => fileWatcher?.markScopeWrite(scope, revision),
+        onWeekAppWrite: (isoYear, isoWeek, revision) =>
+          fileWatcher?.markAppWrite(getCurrentWeekPath(dataPaths, isoYear, isoWeek), revision),
+      });
+      await scheduler.start();
+      await fileWatcher.start();
       await windowManager.createFloatingNote();
       trayManager.create();
       logger.info('Application ready', { dataDirectory: dataPaths.root });

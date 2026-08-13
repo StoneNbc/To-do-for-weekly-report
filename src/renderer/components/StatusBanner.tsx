@@ -7,7 +7,7 @@ export function StatusBanner({
 }: {
   error: ApiError | null;
   notice?: string | null;
-  onRetry?: () => void;
+  onRetry?: () => void | Promise<void>;
 }) {
   if (!error && !notice) return null;
 
@@ -20,7 +20,7 @@ export function StatusBanner({
     >
       <span>{error?.message ?? notice}</span>
       {error && onRetry ? (
-        <button className="rounded-md px-2 py-1 font-medium hover:bg-red-100" onClick={onRetry}>
+        <button className="rounded-md px-2 py-1 font-medium hover:bg-red-100" onClick={() => void onRetry()}>
           重试
         </button>
       ) : null}

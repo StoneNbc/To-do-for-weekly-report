@@ -75,7 +75,27 @@ export interface MockElectronAPIController {
 export function createMockElectronAPI(scenario: MockScenario = 'default'): MockElectronAPIController {
   let today = clone(mockTodaySnapshot);
   let history = clone(mockHistoricalSnapshot);
+  let revisionSequence = 1;
   const listeners = new Set<(event: DataChangedEvent) => void>();
+
+  const nextTodaySnapshot = (tasks: TodaySnapshot['tasks']): TodaySnapshot => {
+    const revision = `today-r-wave2-${revisionSequence++}`;
+    return {
+      ...today,
+      revision,
+      tasks: tasks.map((task) => ({ ...task, locator: { ...task.locator, revision } })),
+    };
+  };
+
+  const nextHistorySnapshot = (tasks: DayRecordSnapshot['tasks'], date = history.date): DayRecordSnapshot => {
+    const revision = `week-r-wave2-${revisionSequence++}`;
+    return {
+      ...history,
+      date,
+      revision,
+      tasks: tasks.map((task) => ({ ...task, locator: { ...task.locator, revision } })),
+    };
+  };
 
   const failureForScenario = <T,>(): ApiResult<T> | null => {
     if (scenario === 'file-changed') {
@@ -100,44 +120,40 @@ export function createMockElectronAPI(scenario: MockScenario = 'default'): MockE
       async add(content: string) {
         const failure = failureForScenario<TodaySnapshot>();
         if (failure) return failure;
-        const revision = `today-r${today.tasks.length + 2}`;
-        today = {
-          ...today,
-          revision,
-          tasks: [...today.tasks, { locator: locator(today.tasks.length + 1, revision), content, completed: false }],
-        };
+        today = nextTodaySnapshot([
+          ...today.tasks,
+          { locator: locator(today.tasks.length + 1, today.revision), content, completed: false },
+        ]);
         return { ok: true as const, data: clone(today) };
       },
       async toggle(target: { line: number; revision: string }) {
         const failure = failureForScenario<TodaySnapshot>();
         if (failure) return failure;
-        today = {
-          ...today,
-          tasks: today.tasks.map((task) => task.locator.line === target.line
+        today = nextTodaySnapshot(
+          today.tasks.map((task) => task.locator.line === target.line
             ? task.completed
               ? { locator: task.locator, content: task.content, completed: false }
               : { ...task, completed: true, completedAt: '18:20' }
             : task),
-        };
+        );
         return { ok: true as const, data: clone(today) };
       },
       async edit(input: { locator: { line: number; revision: string }; content: string; completedAt?: string }) {
         const failure = failureForScenario<TodaySnapshot>();
         if (failure) return failure;
-        today = {
-          ...today,
-          tasks: today.tasks.map((task) => task.locator.line === input.locator.line
+        today = nextTodaySnapshot(
+          today.tasks.map((task) => task.locator.line === input.locator.line
             ? input.completedAt
               ? { ...task, content: input.content, completedAt: input.completedAt }
               : { ...task, content: input.content }
             : task),
-        };
+        );
         return { ok: true as const, data: clone(today) };
       },
       async delete(target: { line: number; revision: string }) {
         const failure = failureForScenario<TodaySnapshot>();
         if (failure) return failure;
-        today = { ...today, tasks: today.tasks.filter((task) => task.locator.line !== target.line) };
+        today = nextTodaySnapshot(today.tasks.filter((task) => task.locator.line !== target.line));
         return { ok: true as const, data: clone(today) };
       },
     },
@@ -153,26 +169,25 @@ export function createMockElectronAPI(scenario: MockScenario = 'default'): MockE
         const task = input.completedAt
           ? { locator: locator(history.tasks.length + 5, history.revision), date: input.date, content: input.content, completedAt: input.completedAt }
           : { locator: locator(history.tasks.length + 5, history.revision), date: input.date, content: input.content };
-        history = { ...history, date: input.date, tasks: [...history.tasks, task] };
+        history = nextHistorySnapshot([...history.tasks, task], input.date);
         return { ok: true as const, data: clone(history) };
       },
       async edit(input: { date: string; locator: { line: number; revision: string }; content: string; completedAt?: string }) {
         const failure = failureForScenario<DayRecordSnapshot>();
         if (failure) return failure;
-        history = {
-          ...history,
-          tasks: history.tasks.map((task) => task.locator.line === input.locator.line
+        history = nextHistorySnapshot(
+          history.tasks.map((task) => task.locator.line === input.locator.line
             ? input.completedAt
               ? { ...task, content: input.content, completedAt: input.completedAt }
               : { locator: task.locator, date: task.date, content: input.content }
             : task),
-        };
+        );
         return { ok: true as const, data: clone(history) };
       },
       async delete(input: { date: string; locator: { line: number; revision: string } }) {
         const failure = failureForScenario<DayRecordSnapshot>();
         if (failure) return failure;
-        history = { ...history, tasks: history.tasks.filter((task) => task.locator.line !== input.locator.line) };
+        history = nextHistorySnapshot(history.tasks.filter((task) => task.locator.line !== input.locator.line));
         return { ok: true as const, data: clone(history) };
       },
     },

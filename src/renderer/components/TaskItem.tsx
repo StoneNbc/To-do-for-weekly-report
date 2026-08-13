@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent } from 'react';
+import { useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
 import type { TaskLocator } from '../../shared/domain';
 
 export interface TaskItemProps {
@@ -6,6 +6,7 @@ export interface TaskItemProps {
   content: string;
   completed: boolean;
   completedAt?: string | undefined;
+  editableTime?: boolean;
   readOnlyCompletion?: boolean;
   disabled?: boolean | undefined;
   onToggle?: (locator: TaskLocator) => void;
@@ -18,6 +19,7 @@ export function TaskItem({
   content,
   completed,
   completedAt,
+  editableTime = false,
   readOnlyCompletion = false,
   disabled = false,
   onToggle,
@@ -26,25 +28,28 @@ export function TaskItem({
 }: TaskItemProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(content);
+  const [timeDraft, setTimeDraft] = useState(completedAt ?? '');
   const committingRef = useRef(false);
   const cancelledRef = useRef(false);
 
   const cancel = () => {
     cancelledRef.current = true;
     setDraft(content);
+    setTimeDraft(completedAt ?? '');
     setEditing(false);
   };
 
   const commit = async () => {
     if (cancelledRef.current || committingRef.current) return;
     const normalized = draft.trim();
-    if (!normalized || normalized === content) {
+    const timeChanged = editableTime && timeDraft !== (completedAt ?? '');
+    if (!normalized || (normalized === content && !timeChanged)) {
       setDraft(content);
       setEditing(false);
       return;
     }
     committingRef.current = true;
-    const saved = await onEdit(locator, normalized, completedAt);
+    const saved = await onEdit(locator, normalized, editableTime ? timeDraft || undefined : completedAt);
     committingRef.current = false;
     if (saved) setEditing(false);
   };
@@ -57,6 +62,11 @@ export function TaskItem({
       event.preventDefault();
       void commit();
     }
+  };
+
+  const handleEditBlur = (event: FocusEvent<HTMLDivElement>) => {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+    void commit();
   };
 
   return (
@@ -78,19 +88,35 @@ export function TaskItem({
 
       <div className="min-w-0 flex-1">
         {editing ? (
-          <input
-            aria-label={`编辑任务：${content}`}
-            autoFocus
-            className="w-full rounded-md border border-amber-500 bg-white/80 px-2 py-1 text-sm outline-none ring-2 ring-amber-300"
-            disabled={disabled}
-            onBlur={() => void commit()}
-            onChange={(event) => setDraft(event.target.value)}
-            onFocus={() => {
-              cancelledRef.current = false;
-            }}
-            onKeyDown={handleKeyDown}
-            value={draft}
-          />
+          <div className="flex items-center gap-1" onBlur={handleEditBlur}>
+            <input
+              aria-label={`编辑任务：${content}`}
+              autoFocus
+              className="min-w-0 flex-1 rounded-md border border-amber-500 bg-white/80 px-2 py-1 text-sm outline-none ring-2 ring-amber-300"
+              disabled={disabled}
+              onChange={(event) => setDraft(event.target.value)}
+              onFocus={() => {
+                cancelledRef.current = false;
+              }}
+              onKeyDown={handleKeyDown}
+              value={draft}
+            />
+            {editableTime ? (
+              <input
+                aria-label={`编辑完成时间：${content}`}
+                className="w-[5.2rem] rounded-md border border-amber-500 bg-white/80 px-1 py-1 text-xs outline-none ring-2 ring-amber-300"
+                disabled={disabled}
+                onBlur={() => void commit()}
+                onChange={(event) => setTimeDraft(event.target.value)}
+                onFocus={() => {
+                  cancelledRef.current = false;
+                }}
+                onKeyDown={handleKeyDown}
+                type="time"
+                value={timeDraft}
+              />
+            ) : null}
+          </div>
         ) : (
           <button
             aria-label={`编辑任务：${content}`}
