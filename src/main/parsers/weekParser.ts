@@ -8,6 +8,7 @@ import {
 import { isValidLocalTime } from '../../shared/validation';
 import { decodeText, encodeLines, type LineEnding } from './lineEndings';
 
+// 周文件中的 MM-DD 无法独立判断年份，调用方必须提供目标 ISO 周上下文。
 const WEEK_HEADER_RE = /^# 第(\d{1,2})周 \((\d{4}-\d{2}-\d{2}) ~ (\d{4}-\d{2}-\d{2})\)$/;
 const DAY_HEADER_RE = /^## (周[一二三四五六日]) (\d{2})-(\d{2})$/;
 const TASK_RE = /^- (.+)$/;
@@ -49,11 +50,7 @@ export interface WeekUnknownNode extends WeekNodeBase {
 }
 
 export type WeekNode =
-  | WeekHeaderNode
-  | DayHeaderNode
-  | ArchivedTaskNode
-  | WeekBlankNode
-  | WeekUnknownNode;
+  WeekHeaderNode | DayHeaderNode | ArchivedTaskNode | WeekBlankNode | WeekUnknownNode;
 
 export interface WeekDocument {
   isoYear: number;
@@ -78,7 +75,13 @@ const makeWarning = (
   reason: string,
 ): ParseWarning => ({ file, line, code, reason });
 
-const resolveMonthDay = (isoYear: number, isoWeek: number, month: string, day: string): string | null => {
+const resolveMonthDay = (
+  isoYear: number,
+  isoWeek: number,
+  month: string,
+  day: string,
+): string | null => {
+  // 在目标周七天内匹配，正确处理跨自然年的 ISO 周。
   for (let weekday = 1; weekday <= 7; weekday += 1) {
     const date = getDateFromIsoWeek(isoYear, isoWeek, weekday);
     if (date.slice(5, 7) === month && date.slice(8, 10) === day) return date;
@@ -89,7 +92,8 @@ const resolveMonthDay = (isoYear: number, isoWeek: number, month: string, day: s
 export const parseWeek = (text: string, options: ParseWeekOptions): WeekDocument => {
   // Validates the week, including rejecting W53 in years that only have 52 weeks.
   getDateFromIsoWeek(options.isoYear, options.isoWeek, 1);
-  const file = options.file ?? `week-${options.isoYear}-W${String(options.isoWeek).padStart(2, '0')}.txt`;
+  const file =
+    options.file ?? `week-${options.isoYear}-W${String(options.isoWeek).padStart(2, '0')}.txt`;
   const decoded = decodeText(text);
   const nodes: WeekNode[] = [];
   const warnings: ParseWarning[] = [];
@@ -139,7 +143,12 @@ export const parseWeek = (text: string, options: ParseWeekOptions): WeekDocument
     const dayHeader = DAY_HEADER_RE.exec(raw);
     if (dayHeader) {
       const weekdayLabel = dayHeader[1] ?? '';
-      const date = resolveMonthDay(options.isoYear, options.isoWeek, dayHeader[2] ?? '', dayHeader[3] ?? '');
+      const date = resolveMonthDay(
+        options.isoYear,
+        options.isoWeek,
+        dayHeader[2] ?? '',
+        dayHeader[3] ?? '',
+      );
       if (date === null) {
         const reason = '日期标题不属于目标 ISO 周';
         nodes.push({ kind: 'unknown', raw, line, reason });
@@ -148,6 +157,7 @@ export const parseWeek = (text: string, options: ParseWeekOptions): WeekDocument
         return;
       }
 
+      // 重复日期段是合法可读数据：仅提示，不合并、不删除，也不对任务去重。
       if (seenDates.has(date)) {
         warnings.push(makeWarning(file, line, 'DUPLICATE_HEADER', `日期 ${date} 存在重复段`));
       }
@@ -171,6 +181,7 @@ export const parseWeek = (text: string, options: ParseWeekOptions): WeekDocument
     const task = TASK_RE.exec(raw);
     if (task) {
       if (currentDate === null) {
+        // 孤立任务不能安全推断归属日期，因此作为 unknown 节点原样保存。
         const reason = '归档任务上方没有合法日期标题';
         nodes.push({ kind: 'unknown', raw, line, reason });
         warnings.push(makeWarning(file, line, 'ORPHAN_TASK', reason));
@@ -189,7 +200,13 @@ export const parseWeek = (text: string, options: ParseWeekOptions): WeekDocument
           makeWarning(file, line, 'INVALID_TIME', `无效的完成时间：${timeLikeSuffix[1]}`),
         );
       }
-      const node: ArchivedTaskNode = { kind: 'archivedTask', raw, line, date: currentDate, content };
+      const node: ArchivedTaskNode = {
+        kind: 'archivedTask',
+        raw,
+        line,
+        date: currentDate,
+        content,
+      };
       if (completedAt !== undefined) node.completedAt = completedAt;
       nodes.push(node);
       return;
@@ -232,6 +249,7 @@ export const formatArchivedTask = (content: string, completedAt?: string): strin
   `- ${content}${completedAt ? ` @${completedAt}` : ''}`;
 
 export const serializeWeek = (document: WeekDocument): string =>
+  // 直接拼接节点 raw，未被 Repository 修改的行不会被格式化或丢失。
   encodeLines(
     document.nodes.map((node) => node.raw),
     document.eol,

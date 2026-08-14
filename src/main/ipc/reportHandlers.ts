@@ -18,6 +18,7 @@ export const registerReportHandlers = ({
   logger,
 }: RegisterReportHandlersOptions): (() => void) => {
   ipcMain.handle(IPC.reportExport, async (_event, input: unknown): Promise<ExportReportResult> => {
+    // 导出采用三态结果，取消是正常状态，因此不套用普通 ApiResult。
     const parsed = isoWeekInputSchema.safeParse(input);
     if (!parsed.success) return { status: 'failed', message: '周数无效，请刷新后重试' };
     try {
@@ -29,6 +30,7 @@ export const registerReportHandlers = ({
   });
 
   const handleAction = (channel: string, action: () => Promise<void> | void): void => {
+    // 打开/定位属于高权限 Shell 动作，只能作用于 ReportService 授权的最近导出路径。
     ipcMain.handle(channel, async (): Promise<ApiResult<void>> => {
       try {
         await action();

@@ -36,15 +36,13 @@ export class FileWatcherService {
   async start(): Promise<void> {
     if (this.#watcher) return;
     const createWatcher = this.#options.createWatcher ?? chokidar.watch;
-    const watcher = createWatcher(
-      [this.#options.paths.root],
-      {
-        depth: 2,
-        ignoreInitial: true,
-        awaitWriteFinish: { stabilityThreshold: 150, pollInterval: 50 },
-        ignored: (candidate) => this.#isIgnored(candidate),
-      },
-    );
+    const watcher = createWatcher([this.#options.paths.root], {
+      depth: 2,
+      ignoreInitial: true,
+      // 等编辑器完成临时写/重命名，降低读到半成品文件的概率。
+      awaitWriteFinish: { stabilityThreshold: 150, pollInterval: 50 },
+      ignored: (candidate) => this.#isIgnored(candidate),
+    });
     watcher.on('add', (file) => this.#enqueue(file, 'change'));
     watcher.on('change', (file) => this.#enqueue(file, 'change'));
     watcher.on('unlink', (file) => this.#enqueue(file, 'unlink'));
@@ -53,6 +51,7 @@ export class FileWatcherService {
   }
 
   markAppWrite(file: string, revision: string): void {
+    // revision 与短时间窗口共同区分本应用写入和真正的外部编辑。
     this.#recentAppWrites.set(path.resolve(file), { revision, timestamp: Date.now() });
   }
 
@@ -77,6 +76,7 @@ export class FileWatcherService {
     const absolute = path.resolve(file);
     const previous = this.#timers.get(absolute);
     if (previous) clearTimeout(previous);
+    // 一次原子替换可能产生 add/change 事件风暴；按绝对路径防抖后只处理最后一次。
     const timer = setTimeout(() => {
       this.#timers.delete(absolute);
       const operation = this.#process(absolute, kind);
@@ -95,6 +95,7 @@ export class FileWatcherService {
       if (!scope) return;
 
       if (kind === 'unlink' && scope.kind === 'today') {
+        // today.txt 是应用运行所必需的；外部删除后重建空文件并通知两个窗口刷新。
         const recreated = await this.#options.todayRepository.initialize(getLocalDate());
         this.markAppWrite(file, recreated.file.revision);
         this.#options.logger.warn('Externally deleted today file was recreated', { file });
@@ -109,17 +110,22 @@ export class FileWatcherService {
 
       const revision = computeRevision(await readFile(file, 'utf8'));
       const recent = this.#recentAppWrites.get(file);
-      const withinWindow = recent && Date.now() - recent.timestamp <= (this.#options.recentWriteWindowMs ?? 2_000);
+      const withinWindow =
+        recent && Date.now() - recent.timestamp <= (this.#options.recentWriteWindowMs ?? 2_000);
+      // 只凭时间会误吞用户紧随其后的编辑，所以还必须匹配实际文件 revision。
       const reason = withinWindow && recent.revision === revision ? 'app-write' : 'external-edit';
       if (reason === 'app-write') this.#recentAppWrites.delete(file);
       this.#options.broadcast(this.#eventForScope(scope, reason));
     } catch (error) {
       const missing = error instanceof Error && 'code' in error && error.code === 'ENOENT';
-      if (!missing) this.#options.logger.error('File watcher event could not be processed', { file, error });
+      if (!missing)
+        this.#options.logger.error('File watcher event could not be processed', { file, error });
     }
   }
 
-  #scope(file: string): { kind: 'today' | 'config' | 'week'; isoYear?: number; isoWeek?: number } | null {
+  #scope(
+    file: string,
+  ): { kind: 'today' | 'config' | 'week'; isoYear?: number; isoWeek?: number } | null {
     if (file === path.resolve(this.#options.paths.todayFile)) return { kind: 'today' };
     if (file === path.resolve(this.#options.paths.configFile)) return { kind: 'config' };
     if (path.dirname(file) !== path.resolve(this.#options.paths.weeksDirectory)) return null;
@@ -133,14 +139,23 @@ export class FileWatcherService {
     reason: 'external-edit' | 'app-write',
   ): DataChangedEvent {
     if (scope.kind === 'week') {
-      return { scope: 'week', isoYear: scope.isoYear, isoWeek: scope.isoWeek, reason } as DataChangedEvent;
+      return {
+        scope: 'week',
+        isoYear: scope.isoYear,
+        isoWeek: scope.isoWeek,
+        reason,
+      } as DataChangedEvent;
     }
     return { scope: scope.kind, reason };
   }
 
   #isIgnored(candidate: string): boolean {
     const base = path.basename(candidate);
-    return base.includes('.tmp') || path.resolve(candidate).startsWith(path.resolve(this.#options.paths.logsDirectory));
+    // 原子写临时文件和日志都不是业务数据，监听它们只会制造刷新回声。
+    return (
+      base.includes('.tmp') ||
+      path.resolve(candidate).startsWith(path.resolve(this.#options.paths.logsDirectory))
+    );
   }
 }
 

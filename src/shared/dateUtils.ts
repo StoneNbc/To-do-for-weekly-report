@@ -1,3 +1,4 @@
+/** ISO 周的年份可能与自然年不同，例如 1 月 1 日可能仍属于上一 ISO 周年。 */
 export interface IsoWeekInfo {
   isoYear: number;
   isoWeek: number;
@@ -21,6 +22,7 @@ const parseIsoDate = (value: string): Date => {
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
+  // 领域日期没有时区和时刻。内部用 UTC 做日历运算，避免 DST 让“加一天”变成 23/25 小时。
   const date = new Date(Date.UTC(year, month - 1, day));
   if (
     date.getUTCFullYear() !== year ||
@@ -32,6 +34,7 @@ const parseIsoDate = (value: string): Date => {
   return date;
 };
 
+/** 将 Date 按运行机器的本地时区格式化，作为业务上的“今天”。 */
 export const getLocalDate = (now: Date = new Date()): string =>
   `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
 
@@ -59,6 +62,7 @@ export const getIsoWeekInfo = (value: string): IsoWeekInfo => {
   const date = parseIsoDate(value);
   const isoWeekday = date.getUTCDay() || 7;
   const monday = new Date(date.getTime() - (isoWeekday - 1) * DAY_MS);
+  // ISO 周年由该周的周四决定，因此跨年周不能直接使用日期的自然年。
   const thursday = new Date(monday.getTime() + 3 * DAY_MS);
   const isoYear = thursday.getUTCFullYear();
 
@@ -95,6 +99,7 @@ export const getDateFromIsoWeek = (
   const firstMonday = new Date(januaryFourth.getTime() - (januaryFourthWeekday - 1) * DAY_MS);
   const result = new Date(firstMonday.getTime() + ((isoWeek - 1) * 7 + isoWeekday - 1) * DAY_MS);
   const formatted = formatUtcDate(result);
+  // 回算一次可以拒绝并非每年都存在的 W53。
   const actual = getIsoWeekInfo(formatted);
   if (actual.isoYear !== isoYear || actual.isoWeek !== isoWeek) {
     throw new RangeError(`${isoYear}-W${pad2(isoWeek)} 不存在`);

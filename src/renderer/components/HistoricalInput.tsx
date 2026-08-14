@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 
+/** 历史补录输入，完成时间可选，目标日期由父页面固定。 */
 export function HistoricalInput({
   disabled = false,
   onAdd,
@@ -19,9 +20,7 @@ export function HistoricalInput({
       return;
     }
     setError(null);
-    const saved = completedAt
-      ? await onAdd(normalized, completedAt)
-      : await onAdd(normalized);
+    const saved = completedAt ? await onAdd(normalized, completedAt) : await onAdd(normalized);
     if (saved) {
       setContent('');
       setCompletedAt('');
@@ -29,8 +28,13 @@ export function HistoricalInput({
   };
 
   return (
-    <form className="no-drag border-t border-amber-900/10 pt-3" onSubmit={(event) => void submit(event)}>
-      <label className="sr-only" htmlFor="historical-content">补录已完成事项</label>
+    <form
+      className="no-drag border-t border-amber-900/10 pt-3"
+      onSubmit={(event) => void submit(event)}
+    >
+      <label className="sr-only" htmlFor="historical-content">
+        补录已完成事项
+      </label>
       <div className="grid grid-cols-[minmax(0,1fr)_4.8rem_auto] items-center gap-1 rounded-xl bg-white/60 p-1.5 ring-1 ring-amber-900/10 focus-within:ring-2 focus-within:ring-amber-600 sm:gap-2">
         <input
           aria-describedby={error ? 'historical-error' : undefined}
@@ -58,7 +62,11 @@ export function HistoricalInput({
           补录
         </button>
       </div>
-      {error ? <p className="mt-1 px-2 text-xs text-red-700" id="historical-error">{error}</p> : null}
+      {error ? (
+        <p className="mt-1 px-2 text-xs text-red-700" id="historical-error">
+          {error}
+        </p>
+      ) : null}
     </form>
   );
 }

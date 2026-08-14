@@ -3,6 +3,7 @@ import type { ApiError } from '../../shared/results';
 
 export type NoteSnapshot = TodaySnapshot | DayRecordSnapshot;
 
+/** 今日和历史共用的页面状态；磁盘数据只保存在 snapshot，不另建任务副本。 */
 export interface NoteState {
   mode: 'today' | 'history';
   selectedDate: string;
@@ -39,6 +40,7 @@ export function createInitialNoteState(today: string): NoteState {
 }
 
 export function noteReducer(state: NoteState, action: NoteAction): NoteState {
+  // Reducer 只管理异步状态机，任务变更结果必须来自 Main 返回的完整快照。
   switch (action.type) {
     case 'load-start':
       return {

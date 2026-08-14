@@ -1,6 +1,10 @@
 import type { TaskLocator, TodaySnapshot, TodayTaskView } from '../../shared/domain';
 import { getLocalDate } from '../../shared/dateUtils';
-import { assertValidIsoDate, assertValidLocalTime, assertValidTaskContent } from '../../shared/validation';
+import {
+  assertValidIsoDate,
+  assertValidLocalTime,
+  assertValidTaskContent,
+} from '../../shared/validation';
 import {
   formatTodayTask,
   parseToday,
@@ -11,6 +15,7 @@ import {
 } from '../parsers/todayParser';
 import { FileChangedError, TextFileStore, type TextFileSnapshot } from './textFileStore';
 
+/** locator 指向的物理行不存在，或该行不是可操作任务。 */
 export class TaskLineNotFoundError extends Error {
   readonly code = 'NOT_FOUND' as const;
 
@@ -54,6 +59,7 @@ export class TodayRepository {
       return await this.read();
     } catch (error) {
       if (!isMissingFile(error)) throw error;
+      // initialize 只创建缺失文件；已有但损坏的文件必须留给用户修复，不能静默覆盖。
       await this.store.writeAtomic(this.path, `# ${date}\n`);
       return this.read();
     }
@@ -75,12 +81,14 @@ export class TodayRepository {
         completed: false,
         content: normalized,
       };
+      // 新任务紧跟现有任务区，未知行和用户注释的相对顺序保持不变。
       const lastTask = document.nodes.reduce(
         (last, node, index) => (node.kind === 'task' ? index : last),
         -1,
       );
       const header = document.nodes.findIndex((node) => node.kind === 'header');
-      const insertion = lastTask >= 0 ? lastTask + 1 : header >= 0 ? header + 1 : document.nodes.length;
+      const insertion =
+        lastTask >= 0 ? lastTask + 1 : header >= 0 ? header + 1 : document.nodes.length;
       document.nodes.splice(insertion, 0, newNode);
       reindexTodayNodes(document.nodes);
       return { text: serializeToday(document), result: undefined };
@@ -89,15 +97,19 @@ export class TodayRepository {
   }
 
   async updateTask(locator: TaskLocator, changes: TodayTaskChanges): Promise<TodayReadResult> {
-    if (locator.line < 0 || !Number.isInteger(locator.line)) throw new TaskLineNotFoundError(locator.line);
+    if (locator.line < 0 || !Number.isInteger(locator.line))
+      throw new TaskLineNotFoundError(locator.line);
     const result = await this.store.update(this.path, locator.revision, (file) => {
       const document = parseToday(file.text, { file: this.path });
       const node = document.nodes[locator.line];
       if (!node || node.kind !== 'task') throw new TaskLineNotFoundError(locator.line);
 
-      const content = changes.content === undefined ? node.content : assertValidTaskContent(changes.content);
+      const content =
+        changes.content === undefined ? node.content : assertValidTaskContent(changes.content);
       const completed = changes.completed ?? node.completed;
-      let completedAt = changes.completedAt === undefined ? node.completedAt : changes.completedAt ?? undefined;
+      // undefined 表示“不修改”，null 表示“明确移除”，用于撤销完成状态。
+      let completedAt =
+        changes.completedAt === undefined ? node.completedAt : (changes.completedAt ?? undefined);
       if (!completed) completedAt = undefined;
       if (completedAt !== undefined) assertValidLocalTime(completedAt);
       node.content = content;
@@ -133,9 +145,8 @@ export class TodayRepository {
       header.date = targetDate;
       header.raw = `# ${targetDate}`;
       document.fileDate = targetDate;
-      document.nodes = document.nodes.filter(
-        (node) => node.kind !== 'task' || !node.completed,
-      );
+      // 跨日只移除已完成任务；未完成任务和无法识别的行会无限顺延。
+      document.nodes = document.nodes.filter((node) => node.kind !== 'task' || !node.completed);
       reindexTodayNodes(document.nodes);
       return { text: serializeToday(document), result: undefined };
     });
@@ -148,6 +159,7 @@ export class TodayRepository {
       .filter((node): node is TodayTaskNode => node.kind === 'task')
       .map((node) => {
         const task: TodayTaskView = {
+          // 正文不是身份：重复任务依靠 revision + line 保持独立。
           locator: { line: node.line, revision: file.revision },
           content: node.content,
           completed: node.completed,

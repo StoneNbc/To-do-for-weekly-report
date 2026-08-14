@@ -3,6 +3,7 @@ import { isValidLocalDate } from '../../shared/dateUtils';
 import { isValidLocalTime } from '../../shared/validation';
 import { decodeText, encodeLines, type LineEnding } from './lineEndings';
 
+// 解析器生成保留 raw 的轻量 AST。Repository 只重写被编辑的节点，未知行原样保留。
 const HEADER_RE = /^# (\d{4}-\d{2}-\d{2})$/;
 const TASK_RE = /^- \[([ xX])\] (.+)$/;
 const VALID_TRAILING_TIME_RE = /\s@([0-2]\d:[0-5]\d)$/;
@@ -98,6 +99,7 @@ export const parseToday = (text: string, options: ParseTodayOptions = {}): Today
       let completedAt: string | undefined;
       const trailing = VALID_TRAILING_TIME_RE.exec(content);
       const timeLikeSuffix = TIME_LIKE_SUFFIX_RE.exec(content);
+      // 只有已完成任务才把末尾 @HH:mm 解释为完成时间；其他类似文本仍保留在正文中。
       if (completed && trailing && isValidLocalTime(trailing[1] ?? '')) {
         completedAt = trailing[1];
         content = content.slice(0, trailing.index);
@@ -145,6 +147,7 @@ export const formatTodayTask = (
 ): string => `- [${completed ? 'x' : ' '}] ${content}${completedAt ? ` @${completedAt}` : ''}`;
 
 export const serializeToday = (document: TodayDocument): string =>
+  // raw 是序列化的事实来源，确保解析后未修改的文本逐行保真。
   encodeLines(
     document.nodes.map((node) => node.raw),
     document.eol,
@@ -152,6 +155,7 @@ export const serializeToday = (document: TodayDocument): string =>
   );
 
 export const reindexTodayNodes = (nodes: TodayNode[]): void => {
+  // TaskLocator 使用物理行号，任何插入或删除后都必须同步重建索引。
   nodes.forEach((node, line) => {
     node.line = line;
   });

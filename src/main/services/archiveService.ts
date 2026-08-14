@@ -50,6 +50,7 @@ export class ArchivePartialFailureError extends Error {
 }
 
 export class ArchiveService {
+  // 启动、零点、唤醒和用户操作可能同时触发补偿，必须串行读取并更新两个文件。
   private reconcileQueue: Promise<void> = Promise.resolve();
 
   constructor(
@@ -59,6 +60,7 @@ export class ArchiveService {
   ) {}
 
   reconcileToToday(trigger: ArchiveTrigger): Promise<ArchiveResult> {
+    // trigger 供调用方记录来源；当前业务规则对所有触发源保持一致。
     void trigger;
     const execution = this.reconcileQueue
       .catch(() => undefined)
@@ -75,7 +77,7 @@ export class ArchiveService {
     const read = await this.todayRepository.initialize(localToday);
     const sourceDate = read.snapshot.fileDate;
     if (!sourceDate) {
-      // initialize only creates a missing file; it intentionally does not overwrite a malformed one.
+      // initialize 只创建缺失文件；格式损坏时绝不覆盖用户原文。
       throw new InvalidTodayFileError('today.txt 缺少合法日期头，无法自动归档');
     }
 
@@ -91,15 +93,18 @@ export class ArchiveService {
         carriedCount,
       };
     }
+    // 未来日期通常意味着系统时间回拨或用户手改，自动处理可能把数据归到错误周。
     if (relation === 1) throw new FutureTodayFileError(sourceDate, localToday);
 
     if (completed.length > 0) {
+      // 顺序不可交换：必须先把完成项写入周文件，再清理 today，确保失败时数据仍可恢复。
       await this.weekRepository.appendArchivedTasks(sourceDate, completed.map(toArchivedTask));
     }
 
     try {
       await this.todayRepository.rollOver(read.file.revision, localToday);
     } catch (cause) {
+      // 两个 TXT 无法组成原子事务，显式报告重复风险，而不是假装整个归档已回滚。
       if (completed.length > 0) throw new ArchivePartialFailureError(sourceDate, { cause });
       throw cause;
     }

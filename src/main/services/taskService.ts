@@ -17,6 +17,7 @@ export class TaskService {
   }
 
   async addTodayTask(content: string): Promise<TodaySnapshot> {
+    // 每次写入前补偿跨日，防止新任务被写入昨天的 today.txt。
     await this.archiveService.reconcileToToday('before-mutation');
     return (await this.todayRepository.addTask(content)).snapshot;
   }
@@ -24,15 +25,19 @@ export class TaskService {
   async toggleTodayTask(locator: TaskLocator): Promise<TodaySnapshot> {
     await this.archiveService.reconcileToToday('before-mutation');
     const current = await this.todayRepository.read();
+    // 先检查整文件 revision，再按行读取真实状态，避免基于过期 UI 反向切换。
     if (current.file.revision !== locator.revision) {
       throw new FileChangedError(this.todayRepository.path);
     }
-    const task = current.snapshot.tasks.find((candidate) => candidate.locator.line === locator.line);
+    const task = current.snapshot.tasks.find(
+      (candidate) => candidate.locator.line === locator.line,
+    );
     if (!task) throw new TaskLineNotFoundError(locator.line);
     const completed = !task.completed;
     return (
       await this.todayRepository.updateTask(locator, {
         completed,
+        // 完成时间由 Main 的 Clock 产生；撤销时明确清除，Renderer 不提供可信时钟。
         completedAt: completed ? formatLocalTime(this.clock.now()) : null,
       })
     ).snapshot;

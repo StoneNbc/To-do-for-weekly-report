@@ -63,7 +63,7 @@ export class ReportService {
   }
 
   async export(isoYear: number, isoWeek: number): Promise<ExportReportResult> {
-    // Validate before opening a system dialog, including rejecting nonexistent ISO week 53.
+    // 在打开系统对话框前验证，包括拒绝目标年份并不存在的 W53。
     const weekStart = getDateFromIsoWeek(isoYear, isoWeek, 1);
     const weekEnd = getDateFromIsoWeek(isoYear, isoWeek, 7);
     let snapshot: WeeklySnapshot;
@@ -102,16 +102,23 @@ export class ReportService {
       this.#options.logger.error('Report save dialog failed', { isoYear, isoWeek, cause });
       return { status: 'failed', message: '无法打开保存对话框，请稍后重试' };
     }
+    // 用户取消属于正常流程：不写文件、不记录最近路径，也不弹错误。
     if (selection.canceled || !selection.filePath) return { status: 'cancelled' };
 
     const target = path.resolve(selection.filePath);
     try {
       await this.#enqueueWrite(() => writeUtf8Atomic(target, text));
+      // 最近路径仅保存在本次进程内，避免持久化任意外部路径形成长期授权。
       this.#lastExportedPath = target;
       this.#options.logger.info('Weekly report exported', { path: target, isoYear, isoWeek });
       return { status: 'saved', path: target };
     } catch (cause) {
-      this.#options.logger.error('Weekly report write failed', { path: target, isoYear, isoWeek, cause });
+      this.#options.logger.error('Weekly report write failed', {
+        path: target,
+        isoYear,
+        isoWeek,
+        cause,
+      });
       return { status: 'failed', message: '周报文件保存失败，请检查所选位置后重试' };
     }
   }
@@ -152,6 +159,7 @@ export class ReportService {
   }
 
   #enqueueWrite(operation: () => Promise<void>): Promise<void> {
+    // 多窗口可同时发起导出；串行写入让退出 drain 能可靠等待全部任务。
     this.#writeQueue = this.#writeQueue.catch(() => undefined).then(operation);
     return this.#writeQueue;
   }
@@ -165,6 +173,7 @@ const writeUtf8Atomic = async (target: string, text: string): Promise<void> => {
   );
   let handle: Awaited<ReturnType<typeof open>> | undefined;
   try {
+    // 报告同样使用同目录临时文件原子替换，失败时不会留下截断的目标文件。
     handle = await open(temporary, 'wx', 0o600);
     await handle.writeFile(text, 'utf8');
     await handle.sync();

@@ -7,14 +7,11 @@ import type {
 } from '../../shared/domain';
 import type { ApiResult, ExportReportResult } from '../../shared/results';
 
+// 仅供 Renderer 测试显式注入；生产入口绝不能在 Preload 缺失时自动回退到该 Mock。
 export type MockScenario =
-  | 'default'
-  | 'empty-week'
-  | 'file-changed'
-  | 'io-error'
-  | 'export-cancelled';
+  'default' | 'empty-week' | 'file-changed' | 'io-error' | 'export-cancelled';
 
-const clone = <T,>(value: T): T => structuredClone(value);
+const clone = <T>(value: T): T => structuredClone(value);
 const pause = () => Promise.resolve();
 const locator = (line: number, revision = 'today-r1') => ({ line, revision });
 
@@ -72,7 +69,9 @@ export interface MockElectronAPIController {
   emit(event: DataChangedEvent): void;
 }
 
-export function createMockElectronAPI(scenario: MockScenario = 'default'): MockElectronAPIController {
+export function createMockElectronAPI(
+  scenario: MockScenario = 'default',
+): MockElectronAPIController {
   let today = clone(mockTodaySnapshot);
   let history = clone(mockHistoricalSnapshot);
   let revisionSequence = 1;
@@ -87,7 +86,10 @@ export function createMockElectronAPI(scenario: MockScenario = 'default'): MockE
     };
   };
 
-  const nextHistorySnapshot = (tasks: DayRecordSnapshot['tasks'], date = history.date): DayRecordSnapshot => {
+  const nextHistorySnapshot = (
+    tasks: DayRecordSnapshot['tasks'],
+    date = history.date,
+  ): DayRecordSnapshot => {
     const revision = `week-r-wave2-${revisionSequence++}`;
     return {
       ...history,
@@ -97,7 +99,7 @@ export function createMockElectronAPI(scenario: MockScenario = 'default'): MockE
     };
   };
 
-  const failureForScenario = <T,>(): ApiResult<T> | null => {
+  const failureForScenario = <T>(): ApiResult<T> | null => {
     if (scenario === 'file-changed') {
       return { ok: false, error: { code: 'FILE_CHANGED', message: '数据文件已更新，请重试' } };
     }
@@ -130,23 +132,31 @@ export function createMockElectronAPI(scenario: MockScenario = 'default'): MockE
         const failure = failureForScenario<TodaySnapshot>();
         if (failure) return failure;
         today = nextTodaySnapshot(
-          today.tasks.map((task) => task.locator.line === target.line
-            ? task.completed
-              ? { locator: task.locator, content: task.content, completed: false }
-              : { ...task, completed: true, completedAt: '18:20' }
-            : task),
+          today.tasks.map((task) =>
+            task.locator.line === target.line
+              ? task.completed
+                ? { locator: task.locator, content: task.content, completed: false }
+                : { ...task, completed: true, completedAt: '18:20' }
+              : task,
+          ),
         );
         return { ok: true as const, data: clone(today) };
       },
-      async edit(input: { locator: { line: number; revision: string }; content: string; completedAt?: string }) {
+      async edit(input: {
+        locator: { line: number; revision: string };
+        content: string;
+        completedAt?: string;
+      }) {
         const failure = failureForScenario<TodaySnapshot>();
         if (failure) return failure;
         today = nextTodaySnapshot(
-          today.tasks.map((task) => task.locator.line === input.locator.line
-            ? input.completedAt
-              ? { ...task, content: input.content, completedAt: input.completedAt }
-              : { ...task, content: input.content }
-            : task),
+          today.tasks.map((task) =>
+            task.locator.line === input.locator.line
+              ? input.completedAt
+                ? { ...task, content: input.content, completedAt: input.completedAt }
+                : { ...task, content: input.content }
+              : task,
+          ),
         );
         return { ok: true as const, data: clone(today) };
       },
@@ -161,33 +171,57 @@ export function createMockElectronAPI(scenario: MockScenario = 'default'): MockE
       async getDay(date: string) {
         await pause();
         if (scenario === 'io-error') return failureForScenario<DayRecordSnapshot>()!;
-        return { ok: true as const, data: date === history.date ? clone(history) : { date, revision: 'empty-week', tasks: [], warnings: [] } };
+        return {
+          ok: true as const,
+          data:
+            date === history.date
+              ? clone(history)
+              : { date, revision: 'empty-week', tasks: [], warnings: [] },
+        };
       },
       async add(input: { date: string; content: string; completedAt?: string }) {
         const failure = failureForScenario<DayRecordSnapshot>();
         if (failure) return failure;
         const task = input.completedAt
-          ? { locator: locator(history.tasks.length + 5, history.revision), date: input.date, content: input.content, completedAt: input.completedAt }
-          : { locator: locator(history.tasks.length + 5, history.revision), date: input.date, content: input.content };
+          ? {
+              locator: locator(history.tasks.length + 5, history.revision),
+              date: input.date,
+              content: input.content,
+              completedAt: input.completedAt,
+            }
+          : {
+              locator: locator(history.tasks.length + 5, history.revision),
+              date: input.date,
+              content: input.content,
+            };
         history = nextHistorySnapshot([...history.tasks, task], input.date);
         return { ok: true as const, data: clone(history) };
       },
-      async edit(input: { date: string; locator: { line: number; revision: string }; content: string; completedAt?: string }) {
+      async edit(input: {
+        date: string;
+        locator: { line: number; revision: string };
+        content: string;
+        completedAt?: string;
+      }) {
         const failure = failureForScenario<DayRecordSnapshot>();
         if (failure) return failure;
         history = nextHistorySnapshot(
-          history.tasks.map((task) => task.locator.line === input.locator.line
-            ? input.completedAt
-              ? { ...task, content: input.content, completedAt: input.completedAt }
-              : { locator: task.locator, date: task.date, content: input.content }
-            : task),
+          history.tasks.map((task) =>
+            task.locator.line === input.locator.line
+              ? input.completedAt
+                ? { ...task, content: input.content, completedAt: input.completedAt }
+                : { locator: task.locator, date: task.date, content: input.content }
+              : task,
+          ),
         );
         return { ok: true as const, data: clone(history) };
       },
       async delete(input: { date: string; locator: { line: number; revision: string } }) {
         const failure = failureForScenario<DayRecordSnapshot>();
         if (failure) return failure;
-        history = nextHistorySnapshot(history.tasks.filter((task) => task.locator.line !== input.locator.line));
+        history = nextHistorySnapshot(
+          history.tasks.filter((task) => task.locator.line !== input.locator.line),
+        );
         return { ok: true as const, data: clone(history) };
       },
     },
@@ -195,9 +229,10 @@ export function createMockElectronAPI(scenario: MockScenario = 'default'): MockE
       async get(input: { isoYear: number; isoWeek: number }) {
         await pause();
         if (scenario === 'io-error') return failureForScenario<WeeklySnapshot>()!;
-        const snapshot = scenario === 'empty-week'
-          ? { ...mockWeeklySnapshot, ...input, groups: [], total: 0 }
-          : { ...mockWeeklySnapshot, ...input };
+        const snapshot =
+          scenario === 'empty-week'
+            ? { ...mockWeeklySnapshot, ...input, groups: [], total: 0 }
+            : { ...mockWeeklySnapshot, ...input };
         return { ok: true as const, data: clone(snapshot) };
       },
     },
@@ -207,8 +242,12 @@ export function createMockElectronAPI(scenario: MockScenario = 'default'): MockE
         if (scenario === 'io-error') return { status: 'failed', message: '报告写入失败' };
         return { status: 'saved', path: '/用户选择/周报-2026年第33周.txt' };
       },
-      async openLast() { return { ok: true as const, data: undefined }; },
-      async revealLast() { return { ok: true as const, data: undefined }; },
+      async openLast() {
+        return { ok: true as const, data: undefined };
+      },
+      async revealLast() {
+        return { ok: true as const, data: undefined };
+      },
     },
     window: {
       async openWeekly() {},
@@ -216,7 +255,9 @@ export function createMockElectronAPI(scenario: MockScenario = 'default'): MockE
     },
     app: {
       async openDataFolder() {},
-      async setAlwaysOnTop() { return { ok: true as const, data: undefined }; },
+      async setAlwaysOnTop() {
+        return { ok: true as const, data: undefined };
+      },
       async quit() {},
     },
     events: {

@@ -1,3 +1,4 @@
+/** 可安全穿过 IPC 边界并展示给用户的错误代码。 */
 export type ApiErrorCode =
   | 'INVALID_INPUT'
   | 'FILE_CHANGED'
@@ -12,8 +13,10 @@ export interface ApiError {
   message: string;
 }
 
+/** 普通业务操作统一使用可判别联合，避免 Renderer 依赖异常对象序列化。 */
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: ApiError };
 
+/** 导出取消是正常状态，不应作为错误提示。 */
 export type ExportReportResult =
   | { status: 'cancelled' }
   | { status: 'saved'; path: string }

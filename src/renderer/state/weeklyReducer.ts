@@ -32,6 +32,7 @@ export function createInitialWeeklyState(selection: IsoWeekInput): WeeklyState {
 }
 
 export function weeklyReducer(state: WeeklyState, action: WeeklyAction): WeeklyState {
+  // 切周时立即清除旧导出结果，避免用户把旧路径误认为当前周的导出。
   switch (action.type) {
     case 'load-start':
       return {

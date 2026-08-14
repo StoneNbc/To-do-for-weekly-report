@@ -22,7 +22,9 @@ const knownConfigSchema = z.object({
   completed_expanded: z.boolean(),
 });
 
-export type ConfigPatch = Partial<Pick<AppConfig, 'always_on_top' | 'window_bounds' | 'completed_expanded'>>;
+export type ConfigPatch = Partial<
+  Pick<AppConfig, 'always_on_top' | 'window_bounds' | 'completed_expanded'>
+>;
 
 export interface ConfigServiceOptions {
   configFile: string;
@@ -32,6 +34,7 @@ export interface ConfigServiceOptions {
 
 const cloneDefaults = (): AppConfig => ({ ...DEFAULT_CONFIG });
 
+/** 按字段回退无效值，同时保留当前版本不认识的扩展字段。 */
 export const parseConfig = (input: unknown, onInvalid?: (field: string) => void): AppConfig => {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     onInvalid?.('root');
@@ -85,7 +88,9 @@ export class ConfigService {
     } catch (error: unknown) {
       const isMissing = error instanceof Error && 'code' in error && error.code === 'ENOENT';
       this.#logger[isMissing ? 'info' : 'warn'](
-        isMissing ? 'Creating default configuration' : 'Configuration could not be read; using defaults',
+        isMissing
+          ? 'Creating default configuration'
+          : 'Configuration could not be read; using defaults',
         isMissing ? undefined : { error },
       );
       this.#config = cloneDefaults();
@@ -101,10 +106,14 @@ export class ConfigService {
 
   update(patch: ConfigPatch): AppConfig {
     const parsedPatch: ConfigPatch = {};
-    if ('always_on_top' in patch) parsedPatch.always_on_top = z.boolean().parse(patch.always_on_top);
-    if ('completed_expanded' in patch) parsedPatch.completed_expanded = z.boolean().parse(patch.completed_expanded);
-    if ('window_bounds' in patch) parsedPatch.window_bounds = windowBoundsSchema.nullable().parse(patch.window_bounds);
+    if ('always_on_top' in patch)
+      parsedPatch.always_on_top = z.boolean().parse(patch.always_on_top);
+    if ('completed_expanded' in patch)
+      parsedPatch.completed_expanded = z.boolean().parse(patch.completed_expanded);
+    if ('window_bounds' in patch)
+      parsedPatch.window_bounds = windowBoundsSchema.nullable().parse(patch.window_bounds);
     this.#config = { ...this.#config, ...parsedPatch };
+    // 高频窗口移动只更新内存并防抖写盘，避免每个 resize 事件都触发 I/O。
     this.#scheduleWrite();
     return this.get();
   }
@@ -114,6 +123,7 @@ export class ConfigService {
   }
 
   async flush(): Promise<void> {
+    // 退出前将尚未到期的防抖写入立即排队，保证窗口状态不会丢失。
     if (this.#timer) {
       clearTimeout(this.#timer);
       this.#timer = null;
@@ -131,6 +141,7 @@ export class ConfigService {
   }
 
   #enqueueWrite(): Promise<void> {
+    // 所有配置写入串行，后到的状态不会被先到但更慢的写入覆盖。
     this.#writeQueue = this.#writeQueue.then(() => this.#writeNow());
     return this.#writeQueue;
   }

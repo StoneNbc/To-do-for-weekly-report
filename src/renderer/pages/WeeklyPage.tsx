@@ -12,6 +12,7 @@ import { createInitialWeeklyState, weeklyReducer } from '../state/weeklyReducer'
 
 function adjacentWeek(selection: IsoWeekInput, offset: -1 | 1): IsoWeekInput {
   const monday = getDateFromIsoWeek(selection.isoYear, selection.isoWeek, 1);
+  // 以周一中午做本地 Date 位移，避开午夜附近可能发生的时区/DST 边界。
   const shifted = new Date(`${monday}T12:00:00`);
   shifted.setDate(shifted.getDate() + offset * 7);
   const info = getIsoWeekInfo(getLocalDate(shifted));
@@ -28,36 +29,45 @@ export function WeeklyPage() {
   const [state, dispatch] = useReducer(weeklyReducer, initialSelection, createInitialWeeklyState);
   const requestTokenRef = useRef(0);
 
-  const load = useCallback(async (selection: IsoWeekInput) => {
-    const requestToken = ++requestTokenRef.current;
-    dispatch({ type: 'load-start', selection });
-    const result = await api.week.get(selection);
-    if (requestToken !== requestTokenRef.current) return;
-    if (result.ok) dispatch({ type: 'load-success', snapshot: result.data });
-    else dispatch({ type: 'load-failure', error: result.error });
-  }, [api]);
-  const refreshSelection = useCallback(
-    () => load(state.selection),
-    [load, state.selection],
+  const load = useCallback(
+    async (selection: IsoWeekInput) => {
+      // 周数快速切换时丢弃过期响应，保证标题、列表和统计来自同一选择。
+      const requestToken = ++requestTokenRef.current;
+      dispatch({ type: 'load-start', selection });
+      const result = await api.week.get(selection);
+      if (requestToken !== requestTokenRef.current) return;
+      if (result.ok) dispatch({ type: 'load-success', snapshot: result.data });
+      else dispatch({ type: 'load-failure', error: result.error });
+    },
+    [api],
   );
+  const refreshSelection = useCallback(() => load(state.selection), [load, state.selection]);
   const queueRefresh = useRefreshQueue(refreshSelection);
 
   useEffect(() => {
     void load(initialSelection);
   }, [initialSelection, load]);
 
-  const isCurrentWeek = state.selection.isoYear === currentWeek.isoYear && state.selection.isoWeek === currentWeek.isoWeek;
+  const isCurrentWeek =
+    state.selection.isoYear === currentWeek.isoYear &&
+    state.selection.isoWeek === currentWeek.isoWeek;
 
-  useElectronEvents(useCallback((event) => {
-    if (
-      (event.scope === 'today' && isCurrentWeek) ||
-      (event.scope === 'week' &&
-        (event.isoYear === undefined || event.isoYear === state.selection.isoYear) &&
-        (event.isoWeek === undefined || event.isoWeek === state.selection.isoWeek))
-    ) {
-      queueRefresh();
-    }
-  }, [isCurrentWeek, queueRefresh, state.selection]));
+  useElectronEvents(
+    useCallback(
+      (event) => {
+        // today 只影响当前周；week 事件只影响其声明的目标周。
+        if (
+          (event.scope === 'today' && isCurrentWeek) ||
+          (event.scope === 'week' &&
+            (event.isoYear === undefined || event.isoYear === state.selection.isoYear) &&
+            (event.isoWeek === undefined || event.isoWeek === state.selection.isoWeek))
+        ) {
+          queueRefresh();
+        }
+      },
+      [isCurrentWeek, queueRefresh, state.selection],
+    ),
+  );
 
   const range = state.snapshot
     ? `${state.snapshot.weekStart.replaceAll('-', '.')} — ${state.snapshot.weekEnd.replaceAll('-', '.')}`
@@ -74,7 +84,9 @@ export function WeeklyPage() {
       <header className="border-b border-stone-200 bg-white px-4 py-4 sm:px-6 sm:py-5">
         <div className="mx-auto flex min-w-0 max-w-4xl flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-amber-700">Weekly journal</p>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-amber-700">
+              Weekly journal
+            </p>
             <WeekNavigator
               isoWeek={state.selection.isoWeek}
               isoYear={state.selection.isoYear}
@@ -108,14 +120,21 @@ export function WeeklyPage() {
         ) : null}
 
         {state.loading ? (
-          <div className="grid flex-1 place-items-center py-20" role="status">正在读取本地周记…</div>
+          <div className="grid flex-1 place-items-center py-20" role="status">
+            正在读取本地周记…
+          </div>
         ) : !state.snapshot || state.snapshot.groups.length === 0 ? (
           <section className="grid flex-1 place-items-center rounded-2xl border border-dashed border-stone-300 bg-white p-6 text-center sm:p-12">
-            <div><p className="text-lg font-medium text-stone-700">本周暂无完成记录</p><p className="mt-2 text-sm text-stone-400">完成任务后，它们会在这里按日期汇总。</p></div>
+            <div>
+              <p className="text-lg font-medium text-stone-700">本周暂无完成记录</p>
+              <p className="mt-2 text-sm text-stone-400">完成任务后，它们会在这里按日期汇总。</p>
+            </div>
           </section>
         ) : (
           <div className="space-y-4">
-            {state.snapshot.groups.map((group) => <DaySection group={group} key={group.date} />)}
+            {state.snapshot.groups.map((group) => (
+              <DaySection group={group} key={group.date} />
+            ))}
           </div>
         )}
       </div>

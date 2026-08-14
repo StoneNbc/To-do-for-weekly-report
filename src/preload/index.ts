@@ -3,6 +3,7 @@ import { IPC } from '../main/ipc/channels';
 import type { DataChangedEvent } from '../shared/domain';
 import type { ElectronAPI } from './apiTypes';
 
+// Preload 只做参数转发和事件桥接；验证、文件访问与业务规则全部留在 Main Process。
 const api: ElectronAPI = {
   healthCheck: () => ipcRenderer.invoke(IPC.healthCheck),
   today: {
@@ -37,11 +38,14 @@ const api: ElectronAPI = {
   },
   events: {
     onDataChanged: (listener) => {
-      const handler = (_event: Electron.IpcRendererEvent, payload: DataChangedEvent) => listener(payload);
+      const handler = (_event: Electron.IpcRendererEvent, payload: DataChangedEvent) =>
+        listener(payload);
       ipcRenderer.on(IPC.dataChanged, handler);
+      // 暴露明确的清理函数，避免 Renderer 重新渲染后残留旧监听器。
       return () => ipcRenderer.removeListener(IPC.dataChanged, handler);
     },
   },
 };
 
+// contextIsolation 开启时，这是 Renderer 获取桌面能力的唯一入口。
 contextBridge.exposeInMainWorld('electronAPI', api);

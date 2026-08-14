@@ -49,6 +49,7 @@ export class WindowManager {
     if (this.#noteWindow && !this.#noteWindow.isDestroyed()) return this.#noteWindow;
 
     const config = this.#options.config.get();
+    // 屏幕变化后修正保存位置，避免窗口恢复到已拔除的显示器上。
     const bounds = restoreVisibleBounds({
       saved: config.window_bounds,
       displays: toDisplayAreas(),
@@ -68,6 +69,7 @@ export class WindowManager {
       alwaysOnTop: config.always_on_top,
       fullscreenable: false,
       webPreferences: {
+        // Renderer 永远运行在隔离沙箱中，只通过 Preload 获取白名单能力。
         preload: this.#options.preloadPath,
         contextIsolation: true,
         nodeIntegration: false,
@@ -81,6 +83,7 @@ export class WindowManager {
       if (!noteWindow.isDestroyed()) noteWindow.show();
     });
     noteWindow.on('close', (event) => {
+      // 用户关闭便利贴只隐藏到托盘；真正退出由 lifecycle 设置 quitting 标志。
       if (!this.#options.isQuitting()) {
         event.preventDefault();
         noteWindow.hide();
@@ -91,7 +94,9 @@ export class WindowManager {
     });
     noteWindow.on('move', () => this.#scheduleBoundsSave(noteWindow));
     noteWindow.on('resize', () => this.#scheduleBoundsSave(noteWindow));
-    noteWindow.webContents.on('context-menu', () => this.#menuFactory?.createNoteContextMenu().popup({ window: noteWindow }));
+    noteWindow.webContents.on('context-menu', () =>
+      this.#menuFactory?.createNoteContextMenu().popup({ window: noteWindow }),
+    );
 
     await this.#loadView(noteWindow, 'note');
     return noteWindow;
@@ -144,7 +149,9 @@ export class WindowManager {
   }
 
   isFloatingNoteVisible(): boolean {
-    return Boolean(this.#noteWindow && !this.#noteWindow.isDestroyed() && this.#noteWindow.isVisible());
+    return Boolean(
+      this.#noteWindow && !this.#noteWindow.isDestroyed() && this.#noteWindow.isVisible(),
+    );
   }
 
   isAlwaysOnTop(): boolean {
@@ -160,6 +167,7 @@ export class WindowManager {
   }
 
   broadcastDataChanged(event: DataChangedEvent): void {
+    // 事件只声明哪些数据失效，不携带业务正文；各窗口自行重新拉取权威快照。
     for (const window of [this.#noteWindow, this.#weeklyWindow]) {
       if (window && !window.isDestroyed()) window.webContents.send(IPC.dataChanged, event);
     }
@@ -188,12 +196,17 @@ export class WindowManager {
 
   async #loadView(window: BrowserWindow, view: 'note' | 'weekly'): Promise<void> {
     try {
+      // 禁止页面自行打开新窗口或导航到非应用 origin，缩小恶意内容的攻击面。
       window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
       window.webContents.on('will-navigate', (event, targetUrl) => {
         const allowedOrigin = this.#options.rendererDevUrl
           ? new URL(this.#options.rendererDevUrl).origin
           : 'file://';
-        if (allowedOrigin === 'file://' ? !targetUrl.startsWith('file://') : new URL(targetUrl).origin !== allowedOrigin) {
+        if (
+          allowedOrigin === 'file://'
+            ? !targetUrl.startsWith('file://')
+            : new URL(targetUrl).origin !== allowedOrigin
+        ) {
           event.preventDefault();
           this.#options.logger.warn('Blocked renderer navigation', { view, targetUrl });
         }
@@ -219,6 +232,7 @@ export class WindowManager {
   }
 
   #scheduleBoundsSave(window: BrowserWindow): void {
+    // resize/move 会高频触发，防抖后再交给 ConfigService 持久化。
     if (this.#boundsTimer) clearTimeout(this.#boundsTimer);
     this.#boundsTimer = setTimeout(() => {
       this.#boundsTimer = null;
@@ -229,7 +243,9 @@ export class WindowManager {
   }
 }
 
-export const getDefaultWindowPaths = (dirname: string): { preloadPath: string; rendererHtmlPath: string } => ({
+export const getDefaultWindowPaths = (
+  dirname: string,
+): { preloadPath: string; rendererHtmlPath: string } => ({
   preloadPath: path.join(dirname, '../preload/index.cjs'),
   rendererHtmlPath: path.join(dirname, '../../dist/index.html'),
 });

@@ -3,6 +3,7 @@ import { TaskItem } from './TaskItem';
 
 const COLLAPSED_LIMIT = 3;
 
+/** 已完成任务默认只展示前三项，展开只影响会话 UI，不改变数据文件。 */
 export function CompletedSection({
   tasks,
   expanded,
@@ -53,7 +54,9 @@ export function CompletedSection({
         </ul>
       )}
       {!expanded && tasks.length > COLLAPSED_LIMIT ? (
-        <p className="px-2 pt-1 text-[11px] text-stone-400">另有 {tasks.length - COLLAPSED_LIMIT} 项已折叠</p>
+        <p className="px-2 pt-1 text-[11px] text-stone-400">
+          另有 {tasks.length - COLLAPSED_LIMIT} 项已折叠
+        </p>
       ) : null}
     </section>
   );

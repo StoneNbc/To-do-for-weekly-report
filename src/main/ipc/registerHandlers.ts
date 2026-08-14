@@ -70,6 +70,7 @@ export const toApiError = (error: unknown, logger: AppLogger): ApiResult<never> 
     }
   }
 
+  // 未知异常只写入脱敏日志，不把堆栈、路径等 Main 内部信息暴露给 Renderer。
   logger.error('Unhandled IPC operation error', { error });
   return { ok: false, error: { code: 'INTERNAL_ERROR', message: '操作失败，请稍后重试' } };
 };
@@ -84,6 +85,7 @@ export const registerBusinessHandlers = ({
   onWeekAppWrite,
 }: RegisterBusinessHandlersOptions): (() => void) => {
   const channels: string[] = [];
+  // 统一包装成功/失败结果，保证所有业务通道具有相同的错误语义和卸载方式。
   const handle = <T>(channel: string, operation: (...args: unknown[]) => Promise<T>): void => {
     channels.push(channel);
     ipcMain.handle(channel, async (_event, ...args: unknown[]): Promise<ApiResult<T>> => {
@@ -108,7 +110,11 @@ export const registerBusinessHandlers = ({
   });
   handle(IPC.todayEdit, async (input) => {
     const value = parse(editTodaySchema, input);
-    const snapshot = await services.task.editTodayTask(value.locator, value.content, value.completedAt);
+    const snapshot = await services.task.editTodayTask(
+      value.locator,
+      value.content,
+      value.completedAt,
+    );
     onAppWrite?.('today', snapshot.revision);
     return snapshot;
   });
@@ -121,6 +127,7 @@ export const registerBusinessHandlers = ({
   handle(IPC.historyAdd, async (input) => {
     const value = parse(addHistoricalSchema, input);
     const snapshot = await services.weekly.addHistoricalTask(value);
+    // 先标记应用写入，再让 Watcher 事件抵达，可减少当前窗口的重复刷新。
     onAppWrite?.('week', snapshot.revision);
     const week = getIsoWeekInfo(value.date);
     onWeekAppWrite?.(week.isoYear, week.isoWeek, snapshot.revision);
@@ -147,5 +154,6 @@ export const registerBusinessHandlers = ({
     return services.weekly.getWeek(value.isoYear, value.isoWeek);
   });
 
+  // 测试和应用重建时可完整释放 handler，防止重复注册。
   return () => channels.forEach((channel) => ipcMain.removeHandler(channel));
 };

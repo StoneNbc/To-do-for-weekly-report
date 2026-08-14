@@ -13,7 +13,11 @@ export interface SchedulerOptions {
   archive: ArchiveReconciler;
   powerMonitor: Pick<PowerMonitor, 'on' | 'removeListener'>;
   logger: AppLogger;
-  schedule?: (expression: string, task: () => void, options?: { timezone?: string }) => ScheduledTask;
+  schedule?: (
+    expression: string,
+    task: () => void,
+    options?: { timezone?: string },
+  ) => ScheduledTask;
 }
 
 export class ArchiveScheduler {
@@ -32,6 +36,7 @@ export class ArchiveScheduler {
   }
 
   async start(): Promise<void> {
+    // 先补偿离线期间的跨日，再注册后续零点任务。
     await this.reconcile('startup');
     this.#cronTask = this.#schedule('0 0 * * *', () => {
       void this.reconcile('scheduled');
@@ -47,11 +52,13 @@ export class ArchiveScheduler {
   }
 
   reconcile(trigger: SchedulerTrigger): Promise<void> {
+    // Cron 与系统唤醒可能靠得很近，平台层也串行，避免重复进入业务归档。
     this.#queue = this.#queue.then(async () => {
       try {
         await this.#archive.reconcileToToday(trigger === 'scheduled' ? 'midnight' : trigger);
         this.#logger.info('Archive reconciliation completed', { trigger });
       } catch (error) {
+        // 后台失败只记录日志，不能因一次 I/O 错误终止常驻应用或后续调度。
         this.#logger.error('Archive reconciliation failed', { trigger, error });
       }
     });

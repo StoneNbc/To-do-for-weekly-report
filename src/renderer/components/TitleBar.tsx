@@ -1,4 +1,5 @@
 function displayDate(date: string): string {
+  // 使用数值构造本地日期，避免 new Date('YYYY-MM-DD') 被浏览器按 UTC 解释后跨日。
   const [year, month, day] = date.split('-').map(Number);
   const local = new Date(year ?? 0, (month ?? 1) - 1, day ?? 1);
   const weekday = new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(local);
@@ -22,14 +23,32 @@ export function TitleBar({
   onOpenMenu: () => void;
   menuOpen: boolean;
 }) {
+  // aria-controls 与菜单 id 同时构成无障碍关系和外部点击判断契约。
   return (
     <header className="drag-region flex items-center justify-between gap-2 px-1 pb-2">
       <div className="no-drag flex items-center gap-1">
-        <button aria-label="查看前一天" className="icon-button" onClick={onPreviousDay} type="button">‹</button>
-        <button aria-label="查看后一天" className="icon-button" disabled={!isHistory} onClick={onNextDay} type="button">›</button>
+        <button
+          aria-label="查看前一天"
+          className="icon-button"
+          onClick={onPreviousDay}
+          type="button"
+        >
+          ‹
+        </button>
+        <button
+          aria-label="查看后一天"
+          className="icon-button"
+          disabled={!isHistory}
+          onClick={onNextDay}
+          type="button"
+        >
+          ›
+        </button>
       </div>
       <div className="min-w-0 text-center">
-        <h1 className="truncate text-sm font-semibold text-stone-800">{displayDate(selectedDate)}</h1>
+        <h1 className="truncate text-sm font-semibold text-stone-800">
+          {displayDate(selectedDate)}
+        </h1>
         {isHistory ? (
           <div className="no-drag mt-0.5 flex items-center justify-center gap-1">
             <span

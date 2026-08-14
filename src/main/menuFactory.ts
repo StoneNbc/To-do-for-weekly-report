@@ -24,6 +24,7 @@ export class MenuFactory {
   }
 
   #template(includeToggle: boolean): MenuItemConstructorOptions[] {
+    // 每次打开菜单都重新读取可见性和置顶状态，避免 Tray 展示过期勾选值。
     return [
       includeToggle
         ? {

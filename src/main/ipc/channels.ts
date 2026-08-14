@@ -1,3 +1,4 @@
+/** IPC 通道唯一注册表，Preload 和 Main 必须引用这里而不是手写字符串。 */
 export const IPC = {
   healthCheck: 'app:health-check',
   todayGet: 'today:get',

@@ -1,5 +1,6 @@
 import type { ApiError } from '../../shared/results';
 
+/** 持久展示 I/O/冲突错误并提供显式重试，不用短暂 Toast 隐藏重要失败。 */
 export function StatusBanner({
   error,
   notice,

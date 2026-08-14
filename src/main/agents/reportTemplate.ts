@@ -14,6 +14,7 @@ export const renderTemplateReport = (
   context: ReportContext,
 ): string => {
   validateContext(context);
+  // 生成前先完整校验，使未来 Agent/调用方也不能输出跨周或多行任务。
   const groups = groupTasks(tasks, context);
   const lines = [
     RULE,
@@ -68,7 +69,7 @@ const groupTasks = (tasks: readonly WeeklyTask[], context: ReportContext): TaskG
       group = { date: task.date, tasks: [] };
       groups.push(group);
     }
-    // Copy the public task object so the renderer cannot observe internal reordering/mutation.
+    // 复制公开任务对象，调用方不会观察到内部排序或后续修改。
     const copied: WeeklyTask = { date: task.date, content: task.content };
     if (task.time !== undefined) copied.time = task.time;
     group.tasks.push(copied);

@@ -8,6 +8,7 @@ import type {
 } from '../shared/domain';
 import type { ApiResult, ExportReportResult } from '../shared/results';
 
+/** IPC 使用的 ISO 周参数，年份采用 ISO 周年而不是日期的自然年。 */
 export interface IsoWeekInput {
   isoYear: number;
   isoWeek: number;
@@ -34,6 +35,10 @@ export interface DeleteHistoricalInput {
   locator: TaskLocator;
 }
 
+/**
+ * contextBridge 暴露的最小权限 API。
+ * Renderer 不得绕过它直接 import Electron、Node 或 Main Process 模块。
+ */
 export interface ElectronAPI {
   healthCheck(): Promise<{ status: 'ok' }>;
   today: {
@@ -67,6 +72,7 @@ export interface ElectronAPI {
     quit(): Promise<void>;
   };
   events: {
+    /** 返回退订函数，React effect 卸载时必须调用，防止重复监听。 */
     onDataChanged(listener: (event: DataChangedEvent) => void): () => void;
   };
 }

@@ -23,6 +23,7 @@ import { TrayManager } from './trayManager';
 import { getDefaultWindowPaths, WindowManager } from './windowManager';
 import { installLocalOnlyNetworkPolicy } from './platform/networkPolicy';
 
+// Main Process 组合根：这里只负责实例化和接线，文本规则与业务流程留在各自 Service。
 const dataPaths = resolveDataPaths({ app });
 const logger = new LocalFileLogger({
   file: dataPaths.logFile,
@@ -36,6 +37,7 @@ let trayManager: TrayManager | null = null;
 let fileWatcher: FileWatcherService | null = null;
 let scheduler: ArchiveScheduler | null = null;
 let reportService: ReportService | null = null;
+// Today 与 Week Repository 共享 Store，确保同一路径写入都经过同一串行队列。
 const textFileStore = new TextFileStore();
 const lifecycle = new AppLifecycle({
   app,
@@ -53,14 +55,21 @@ const lifecycle = new AppLifecycle({
 if (lifecycle.acquireSingleInstance()) {
   lifecycle.register();
 
-  app.whenReady()
+  app
+    .whenReady()
     .then(async () => {
+      // 目录与配置必须先就绪，后台服务和窗口才可以开始访问业务数据。
       await Promise.all([
         mkdir(dataPaths.weeksDirectory, { recursive: true }),
         mkdir(dataPaths.logsDirectory, { recursive: true }),
       ]);
       await config.initialize();
-      installLocalOnlyNetworkPolicy(session.defaultSession, logger, process.env.VITE_DEV_SERVER_URL);
+      // 生产环境不允许网络；开发环境仅放行当前 Vite origin 和热更新 WebSocket。
+      installLocalOnlyNetworkPolicy(
+        session.defaultSession,
+        logger,
+        process.env.VITE_DEV_SERVER_URL,
+      );
 
       const todayRepository = new TodayRepository(dataPaths.todayFile, textFileStore);
       const weekRepository = new WeekRepository(dataPaths.weeksDirectory, textFileStore);
@@ -72,7 +81,9 @@ if (lifecycle.acquireSingleInstance()) {
         config,
         logger,
         ...windowPaths,
-        ...(process.env.VITE_DEV_SERVER_URL ? { rendererDevUrl: process.env.VITE_DEV_SERVER_URL } : {}),
+        ...(process.env.VITE_DEV_SERVER_URL
+          ? { rendererDevUrl: process.env.VITE_DEV_SERVER_URL }
+          : {}),
         isQuitting: lifecycle.isQuitting,
       });
       const shellActions = createShellActions(dataPaths.root);
@@ -102,7 +113,10 @@ if (lifecycle.acquireSingleInstance()) {
         exportCurrentWeek: () => {
           void reportService?.exportCurrentWeekFromMenu();
         },
-        openDataDirectory: () => void shellActions.openDataDirectory().catch((error) => logger.error('Data directory could not be opened', { error })),
+        openDataDirectory: () =>
+          void shellActions
+            .openDataDirectory()
+            .catch((error) => logger.error('Data directory could not be opened', { error })),
         setAlwaysOnTop: (enabled) => {
           windowManager?.setAlwaysOnTop(enabled);
           trayManager?.refreshMenu();
@@ -119,6 +133,7 @@ if (lifecycle.acquireSingleInstance()) {
         logger,
       });
 
+      // 所有 IPC handler 在 Renderer 加载前完成注册，避免首屏调用落入未注册通道。
       registerPlatformHandlers(windowManager, shellActions.openDataDirectory, lifecycle);
       registerBusinessHandlers({
         ipcMain,
@@ -129,6 +144,7 @@ if (lifecycle.acquireSingleInstance()) {
           fileWatcher?.markAppWrite(getCurrentWeekPath(dataPaths, isoYear, isoWeek), revision),
       });
       registerReportHandlers({ ipcMain, reportService, logger });
+      // Scheduler 先执行启动补偿，再启动 Watcher；这样补偿写入不会被误判为外部编辑。
       await scheduler.start();
       await fileWatcher.start();
       await windowManager.createFloatingNote();
@@ -146,6 +162,7 @@ const registerPlatformHandlers = (
   openDataDirectory: () => Promise<void>,
   appLifecycle: AppLifecycle,
 ): void => {
+  // 平台通道同样把 Renderer 输入视为不可信数据，不直接传给 Electron API。
   ipcMain.handle(IPC.healthCheck, () => ({ status: 'ok' as const }));
   ipcMain.handle(IPC.windowOpenWeekly, async () => {
     await windows.openWeekly();
@@ -154,7 +171,10 @@ const registerPlatformHandlers = (
   ipcMain.handle(IPC.appOpenDataFolder, () => openDataDirectory());
   ipcMain.handle(IPC.appSetAlwaysOnTop, (_event, enabled: unknown) => {
     if (typeof enabled !== 'boolean') {
-      return { ok: false as const, error: { code: 'INVALID_INPUT' as const, message: '置顶状态必须为布尔值' } };
+      return {
+        ok: false as const,
+        error: { code: 'INVALID_INPUT' as const, message: '置顶状态必须为布尔值' },
+      };
     }
     windows.setAlwaysOnTop(enabled);
     return { ok: true as const, data: undefined };

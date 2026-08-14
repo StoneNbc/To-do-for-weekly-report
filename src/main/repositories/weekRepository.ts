@@ -13,7 +13,11 @@ import {
   getIsoWeekInfo,
   getWeekFileName,
 } from '../../shared/dateUtils';
-import { assertValidIsoDate, assertValidLocalTime, assertValidTaskContent } from '../../shared/validation';
+import {
+  assertValidIsoDate,
+  assertValidLocalTime,
+  assertValidTaskContent,
+} from '../../shared/validation';
 import {
   formatArchivedTask,
   formatDayHeader,
@@ -25,7 +29,12 @@ import {
   type WeekDocument,
   type WeekNode,
 } from '../parsers/weekParser';
-import { computeRevision, FileChangedError, TextFileStore, type TextFileSnapshot } from './textFileStore';
+import {
+  computeRevision,
+  FileChangedError,
+  TextFileStore,
+  type TextFileSnapshot,
+} from './textFileStore';
 import { TaskLineNotFoundError } from './todayRepository';
 
 export interface WeekReadResult {
@@ -61,6 +70,7 @@ export class WeekRepository {
       return { path, file, document: parseWeek(file.text, { isoYear, isoWeek, file: path }) };
     } catch (error) {
       if (!isMissingFile(error)) throw error;
+      // 读取不存在的历史周是正常空状态；只有首次写入时才真正创建文件。
       return { path, file: null, document: createEmptyWeekDocument(isoYear, isoWeek) };
     }
   }
@@ -88,6 +98,7 @@ export class WeekRepository {
         content: node.content,
       };
       if (node.completedAt !== undefined) task.time = node.completedAt;
+      // 按节点出现顺序追加，允许正文和时间完全相同的重复任务。
       group.tasks.push(task);
     }
     const groups = [...groupsByDate.values()].sort((a, b) => compareLocalDates(a.date, b.date));
@@ -137,6 +148,7 @@ export class WeekRepository {
     const initial = serializeWeek(createEmptyWeekDocument(isoYear, isoWeek));
     const result = await this.store.updateOrCreate(path, initial, (file) => {
       const document = parseWeek(file.text, { isoYear, isoWeek, file: path });
+      // 一批归档在同一个文件事务内按原顺序追加，不做正文去重。
       for (const task of normalized) {
         insertHistoricalTask(document, date, task.content, task.completedAt);
       }
@@ -162,6 +174,7 @@ export class WeekRepository {
     const result = await this.store.update(path, locator.revision, (file) => {
       const document = parseWeek(file.text, { isoYear, isoWeek, file: path });
       const node = document.nodes[locator.line];
+      // 同时核对行类型和归属日期，防止旧 locator 跨日期段误改其他任务。
       if (!node || node.kind !== 'archivedTask' || node.date !== date) {
         throw new TaskLineNotFoundError(locator.line);
       }
@@ -243,6 +256,7 @@ const insertHistoricalTask = (
     (node) => node.kind === 'dayHeader' && node.date === date,
   );
   if (firstHeader >= 0) {
+    // 已有日期段时插到该段最后一个任务之后，段内未知行仍保持原位置。
     let sectionEnd = firstHeader + 1;
     let insertion = firstHeader + 1;
     while (sectionEnd < document.nodes.length && document.nodes[sectionEnd]?.kind !== 'dayHeader') {
@@ -251,6 +265,7 @@ const insertHistoricalTask = (
     }
     document.nodes.splice(insertion, 0, newNode);
   } else {
+    // 新日期段按日期插入；跨年顺序由完整 ISO 日期比较，而不是 MM-DD 字符串。
     const laterHeader = document.nodes.findIndex(
       (node) => node.kind === 'dayHeader' && compareLocalDates(node.date, date) === 1,
     );
@@ -283,6 +298,7 @@ const removeEmptySafeDaySection = (document: WeekDocument, date: string): void =
       (candidate) => candidate.kind === 'archivedTask' && candidate.date === date,
     );
     const hasUnknown = section.some((candidate) => candidate.kind === 'unknown');
+    // 只删除确定为空且没有未知内容的段，避免把用户手写文本一并删掉。
     if (!hasTask && !hasUnknown) {
       document.nodes.splice(index, end - index);
       return;

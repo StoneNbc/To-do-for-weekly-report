@@ -16,6 +16,7 @@ export interface TextFileUpdate<T> {
   result: T;
 }
 
+/** expectedRevision 与磁盘内容不一致时抛出，阻止旧界面覆盖外部修改。 */
 export class FileChangedError extends Error {
   readonly code = 'FILE_CHANGED' as const;
 
@@ -29,6 +30,7 @@ export const computeRevision = (text: string): string =>
   createHash('sha256').update(text, 'utf8').digest('hex');
 
 export class TextFileStore {
+  // 同一路径的操作串行执行；不同文件仍可并行，避免全局锁降低响应速度。
   private readonly queues = new Map<string, Promise<void>>();
 
   async read(path: string): Promise<TextFileSnapshot> {
@@ -50,6 +52,7 @@ export class TextFileStore {
     const absolutePath = resolve(path);
     return this.enqueue(absolutePath, async () => {
       const current = await this.readUnlocked(absolutePath);
+      // revision 是完整文件文本的 SHA-256，未知行或换行变化也会触发冲突保护。
       if (expectedRevision !== null && current.revision !== expectedRevision) {
         throw new FileChangedError(absolutePath);
       }
@@ -73,6 +76,7 @@ export class TextFileStore {
         current = await this.readUnlocked(absolutePath);
       } catch (error) {
         if (!isMissingFile(error)) throw error;
+        // 初始快照只存在于当前串行事务中，最终仍通过同一原子写路径落盘。
         current = this.createSnapshot(absolutePath, initialText);
       }
       const transformed = await transform(current);
@@ -97,6 +101,7 @@ export class TextFileStore {
     const temporaryPath = resolve(parent, `.${basename(path)}.${process.pid}.${nonce}.tmp`);
     let handle: Awaited<ReturnType<typeof open>> | undefined;
     try {
+      // 同目录临时文件 + fsync + rename，避免进程中断留下半写入的业务文件。
       handle = await open(temporaryPath, 'wx', 0o600);
       await handle.writeFile(text, 'utf8');
       await handle.sync();
@@ -124,6 +129,7 @@ export class TextFileStore {
 
   private async enqueue<T>(path: string, operation: () => Promise<T>): Promise<T> {
     const previous = this.queues.get(path) ?? Promise.resolve();
+    // 前一项失败不能毒化后续队列，下一项仍应有机会读取最新磁盘状态。
     const execution = previous.catch(() => undefined).then(operation);
     const settled = execution.then(
       () => undefined,

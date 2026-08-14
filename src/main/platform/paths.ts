@@ -29,7 +29,9 @@ export const resolveDataPaths = ({
   environment = process.env,
 }: ResolveDataPathsOptions): DataPaths => {
   const developmentOverride = environment.STICKY_WEEKLY_DATA_DIR?.trim();
-  const mayUseOverride = !app.isPackaged && (isTestEnvironment(environment) || environment.NODE_ENV === 'development');
+  // 自定义目录只在开发/测试生效，打包应用始终使用受控的 userData 目录。
+  const mayUseOverride =
+    !app.isPackaged && (isTestEnvironment(environment) || environment.NODE_ENV === 'development');
 
   const root = app.isPackaged
     ? path.join(app.getPath('userData'), 'data')

@@ -21,6 +21,7 @@ export interface LocalLoggerOptions {
 const REDACTED_KEYS = /(?:content|body|report|task|text)/i;
 
 const sanitize = (value: unknown, key = '', depth = 0): unknown => {
+  // 日志只记录诊断元数据，不落盘任务正文或周报内容。
   if (REDACTED_KEYS.test(key)) return '[redacted]';
   if (depth > 4) return '[truncated]';
   if (value instanceof Error) return { name: value.name, message: value.message };
@@ -44,7 +45,12 @@ export class LocalFileLogger implements AppLogger {
   readonly #debugEnabled: boolean;
   #queue: Promise<void> = Promise.resolve();
 
-  constructor({ file, maxBytes = 3 * 1024 * 1024, retainedFiles = 3, debug = false }: LocalLoggerOptions) {
+  constructor({
+    file,
+    maxBytes = 3 * 1024 * 1024,
+    retainedFiles = 3,
+    debug = false,
+  }: LocalLoggerOptions) {
     this.#file = file;
     this.#maxBytes = maxBytes;
     this.#retainedFiles = retainedFiles;
@@ -79,6 +85,7 @@ export class LocalFileLogger implements AppLogger {
       ...(context ? { context: sanitize(context) } : {}),
     })}\n`;
 
+    // 串行追加和轮转，避免并发日志互相覆盖或交错写入。
     this.#queue = this.#queue
       .then(async () => {
         await mkdir(path.dirname(this.#file), { recursive: true });
@@ -86,13 +93,15 @@ export class LocalFileLogger implements AppLogger {
         await appendFile(this.#file, entry, 'utf8');
       })
       .catch((error: unknown) => {
-        // Logging must never terminate the desktop process. Keep the fallback local.
+        // 日志失败不能终止桌面进程；回退只写本机控制台。
         console.error('Local log write failed', error);
       });
   }
 
   async #rotateIfNeeded(incomingBytes: number): Promise<void> {
-    const currentSize = await stat(this.#file).then((value) => value.size).catch(() => 0);
+    const currentSize = await stat(this.#file)
+      .then((value) => value.size)
+      .catch(() => 0);
     if (currentSize + incomingBytes <= this.#maxBytes) return;
 
     if (this.#retainedFiles > 0) {

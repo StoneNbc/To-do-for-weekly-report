@@ -25,16 +25,18 @@ export class AppLifecycle {
       return false;
     }
 
+    // 第二次启动不创建新进程数据写入者，只唤起已有便利贴。
     this.#options.app.on('second-instance', () => this.#options.showFloatingNote());
     return true;
   }
 
   register(): void {
-    // Keep the app alive after all windows are hidden or the weekly window is closed.
+    // 所有窗口隐藏/关闭后仍保持托盘和零点归档运行。
     this.#options.app.on('window-all-closed', () => undefined);
     this.#options.app.on('activate', () => this.#options.showFloatingNote());
     this.#options.app.on('before-quit', (event) => {
       if (this.#quitSequenceStarted) return;
+      // 第一次退出先拦截，等待后台服务和原子写队列排空；第二次才真正退出。
       event.preventDefault();
       this.#isQuitting = true;
       this.#quitSequenceStarted = true;

@@ -2,7 +2,7 @@ import { nativeImage, Tray } from 'electron';
 import type { AppLogger } from './logging/logger';
 import type { MenuFactory } from './menuFactory';
 
-// A local fallback keeps Wave 1 independent from final branding assets.
+// 正式图标尚未提供时使用内嵌占位图，保证开发构建和托盘功能可用。
 const FALLBACK_TRAY_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAALElEQVR42mNgGAWjYBSMglEwCkbBKBgFgwH+//8/BoZRA2g0jIJRMAoGAG0hBB1vD2i8AAAAAElFTkSuQmCC';
 
@@ -23,6 +23,7 @@ export class TrayManager {
   create(): Tray {
     if (this.#tray && !this.#tray.isDestroyed()) return this.#tray;
     const image = nativeImage.createFromDataURL(FALLBACK_TRAY_PNG);
+    // macOS 模板图会自动适配浅色/深色菜单栏。
     if (process.platform === 'darwin') image.setTemplateImage(true);
     const tray = new Tray(image);
     tray.setToolTip('悬浮便利贴');

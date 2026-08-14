@@ -10,7 +10,11 @@ export interface TaskItemProps {
   readOnlyCompletion?: boolean;
   disabled?: boolean | undefined;
   onToggle?: (locator: TaskLocator) => void;
-  onEdit: (locator: TaskLocator, content: string, completedAt?: string) => Promise<boolean> | boolean;
+  onEdit: (
+    locator: TaskLocator,
+    content: string,
+    completedAt?: string,
+  ) => Promise<boolean> | boolean;
   onDelete: (locator: TaskLocator) => void;
 }
 
@@ -40,6 +44,7 @@ export function TaskItem({
   };
 
   const commit = async () => {
+    // blur 和 Enter 可能在同一交互中连续触发，ref 防止重复发起 IPC mutation。
     if (cancelledRef.current || committingRef.current) return;
     const normalized = draft.trim();
     const timeChanged = editableTime && timeDraft !== (completedAt ?? '');
@@ -49,7 +54,11 @@ export function TaskItem({
       return;
     }
     committingRef.current = true;
-    const saved = await onEdit(locator, normalized, editableTime ? timeDraft || undefined : completedAt);
+    const saved = await onEdit(
+      locator,
+      normalized,
+      editableTime ? timeDraft || undefined : completedAt,
+    );
     committingRef.current = false;
     if (saved) setEditing(false);
   };
@@ -65,14 +74,19 @@ export function TaskItem({
   };
 
   const handleEditBlur = (event: FocusEvent<HTMLDivElement>) => {
-    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+    // 正文和时间是一个编辑组；焦点在组内移动时不能提前提交。
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))
+      return;
     void commit();
   };
 
   return (
     <li className="task-row no-drag group flex min-h-10 items-center gap-2 rounded-xl px-2 py-1.5 hover:bg-white/45 focus-within:bg-white/55">
       {readOnlyCompletion ? (
-        <span className="grid h-5 w-5 shrink-0 place-items-center text-emerald-700" aria-hidden="true">
+        <span
+          className="grid h-5 w-5 shrink-0 place-items-center text-emerald-700"
+          aria-hidden="true"
+        >
           ✓
         </span>
       ) : (
@@ -118,6 +132,7 @@ export function TaskItem({
             ) : null}
           </div>
         ) : (
+          // 使用带键盘语义的 span，避免与同一行的删除 button 形成嵌套按钮。
           <span
             aria-label={`任务内容：${content}`}
             className={`block w-full truncate rounded text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-amber-600 ${

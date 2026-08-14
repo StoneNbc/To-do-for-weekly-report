@@ -1,3 +1,4 @@
+/** 窗口、产品名和默认配置的单一事实来源。 */
 export const APP_NAME = '悬浮便利贴';
 export const DEFAULT_NOTE_WIDTH = 320;
 export const DEFAULT_NOTE_HEIGHT = 400;

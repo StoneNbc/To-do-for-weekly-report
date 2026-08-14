@@ -1,6 +1,7 @@
 import type { TodayTaskView } from '../../shared/domain';
 import { TaskItem } from './TaskItem';
 
+/** 今日未完成任务列表；key 使用 locator，正文重复时仍保持独立组件身份。 */
 export function TaskList({
   tasks,
   disabled,
@@ -15,7 +16,11 @@ export function TaskList({
   onDelete: (locator: TodayTaskView['locator']) => void;
 }) {
   if (tasks.length === 0) {
-    return <p className="rounded-xl border border-dashed border-amber-900/15 px-3 py-5 text-center text-sm text-stone-500">今天还没有待办</p>;
+    return (
+      <p className="rounded-xl border border-dashed border-amber-900/15 px-3 py-5 text-center text-sm text-stone-500">
+        今天还没有待办
+      </p>
+    );
   }
 
   return (
