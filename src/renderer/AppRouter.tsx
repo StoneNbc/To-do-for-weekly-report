@@ -1,5 +1,6 @@
 import { FloatingNotePage } from './pages/FloatingNotePage';
 import { WeeklyPage } from './pages/WeeklyPage';
+import { SettingsPage } from './pages/SettingsPage';
 import type { ElectronAPI } from '../preload/apiTypes';
 import { getElectronAPI } from './gateway/electronGateway';
 import { ElectronAPIProvider } from './state/providers';
@@ -10,7 +11,13 @@ export function AppRouter({ api = getElectronAPI() }: { api?: ElectronAPI }) {
   // 未知值安全回退到便利贴，避免 query 被手改后得到空白窗口。
   return (
     <ElectronAPIProvider api={api}>
-      {view === 'weekly' ? <WeeklyPage /> : <FloatingNotePage />}
+      {view === 'weekly' ? (
+        <WeeklyPage />
+      ) : view === 'settings' ? (
+        <SettingsPage />
+      ) : (
+        <FloatingNotePage />
+      )}
     </ElectronAPIProvider>
   );
 }

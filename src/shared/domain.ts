@@ -111,8 +111,36 @@ export interface AppConfig {
   always_on_top: boolean;
   window_bounds: WindowBounds | null;
   completed_expanded: boolean;
+  note_color: string;
+  note_opacity: number;
   /** 保留未知字段，使未来版本或用户手写配置不会在当前版本中被静默删除。 */
   [key: string]: unknown;
+}
+
+/** Renderer 只读取可公开设置，不暴露完整 AppConfig 或内部路径字段。 */
+export interface SettingsSnapshot {
+  noteColor: string;
+  noteOpacity: number;
+  alwaysOnTop: boolean;
+  completedExpanded: boolean;
+  dataDirectory: string;
+}
+
+export interface SettingsPatch {
+  noteColor?: string | undefined;
+  noteOpacity?: number | undefined;
+  alwaysOnTop?: boolean | undefined;
+  completedExpanded?: boolean | undefined;
+}
+
+export interface AppearancePreview {
+  noteColor?: string | undefined;
+  noteOpacity?: number | undefined;
+}
+
+export interface NoteAppearance {
+  noteColor: string;
+  noteOpacity: number;
 }
 
 /** Main 广播给所有窗口的失效通知，窗口收到后自行拉取最新快照。 */

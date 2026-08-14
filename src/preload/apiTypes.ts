@@ -5,6 +5,10 @@ import type {
   TaskLocator,
   TodaySnapshot,
   WeeklySnapshot,
+  AppearancePreview,
+  SettingsPatch,
+  SettingsSnapshot,
+  NoteAppearance,
 } from '../shared/domain';
 import type { ApiResult, ExportReportResult } from '../shared/results';
 
@@ -65,14 +69,25 @@ export interface ElectronAPI {
   window: {
     openWeekly(): Promise<void>;
     showNote(): Promise<void>;
+    openSettings(): Promise<void>;
   };
   app: {
     openDataFolder(): Promise<void>;
     setAlwaysOnTop(enabled: boolean): Promise<ApiResult<void>>;
     quit(): Promise<void>;
   };
+  settings: {
+    get(): Promise<ApiResult<SettingsSnapshot>>;
+    previewAppearance(input: AppearancePreview): Promise<ApiResult<void>>;
+    update(input: SettingsPatch): Promise<ApiResult<SettingsSnapshot>>;
+    resetAppearance(): Promise<ApiResult<SettingsSnapshot>>;
+    openLogsFolder(): Promise<ApiResult<void>>;
+    copyDataPath(): Promise<ApiResult<void>>;
+  };
   events: {
     /** 返回退订函数，React effect 卸载时必须调用，防止重复监听。 */
     onDataChanged(listener: (event: DataChangedEvent) => void): () => void;
+    onSettingsChanged(listener: (snapshot: SettingsSnapshot) => void): () => void;
+    onAppearancePreviewed(listener: (appearance: NoteAppearance) => void): () => void;
   };
 }

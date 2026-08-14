@@ -22,13 +22,28 @@ function renderPage(scenario: Parameters<typeof createMockElectronAPI>[0] = 'def
 }
 
 describe('FloatingNotePage', () => {
+  it('opens the settings window from the enabled note menu', async () => {
+    const controller = renderPage();
+    const openSettings = vi.spyOn(controller.api.window, 'openSettings');
+    await screen.findByRole('list', { name: '今日待办' });
+
+    fireEvent.click(screen.getByRole('button', { name: '打开便利贴菜单' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '设置' }));
+    expect(openSettings).toHaveBeenCalledTimes(1);
+  });
+
   it('按今日待办与已完成分区展示，并保留完全相同的两条任务', async () => {
     renderPage();
 
     expect(await screen.findByRole('list', { name: '今日待办' })).toBeInTheDocument();
-    expect(within(screen.getByRole('list', { name: '今日待办' })).getByText('准备周会材料')).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('list', { name: '今日待办' })).getByText('准备周会材料'),
+    ).toBeInTheDocument();
     expect(screen.getAllByText('重复记录')).toHaveLength(2);
-    expect(screen.getByRole('button', { name: /已完成（5）/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: /已完成（5）/ })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
   });
 
   it('添加任务后使用 API 返回快照更新页面', async () => {
@@ -55,15 +70,19 @@ describe('FloatingNotePage', () => {
     expect(await screen.findByRole('checkbox', { name: '撤销完成：准备周会材料' })).toBeChecked();
 
     fireEvent.click(screen.getByRole('button', { name: /已完成（6）/ }));
-    fireEvent.keyDown(screen.getByRole('button', { name: '任务内容：回复客户邮件' }), { key: 'F2' });
+    fireEvent.keyDown(screen.getByRole('button', { name: '任务内容：回复客户邮件' }), {
+      key: 'F2',
+    });
     const editing = screen.getByRole('textbox', { name: '编辑任务：回复客户邮件' });
     fireEvent.change(editing, { target: { value: '回复重点客户邮件' } });
     fireEvent.keyDown(editing, { key: 'Enter' });
-    await waitFor(() => expect(edit).toHaveBeenCalledWith({
-      locator: expect.objectContaining({ line: 2 }),
-      content: '回复重点客户邮件',
-      completedAt: '14:20',
-    }));
+    await waitFor(() =>
+      expect(edit).toHaveBeenCalledWith({
+        locator: expect.objectContaining({ line: 2 }),
+        content: '回复重点客户邮件',
+        completedAt: '14:20',
+      }),
+    );
 
     fireEvent.click(await screen.findByRole('button', { name: '删除任务：回复重点客户邮件' }));
     await waitFor(() => expect(remove).toHaveBeenCalledWith(expect.objectContaining({ line: 2 })));
@@ -112,31 +131,39 @@ describe('FloatingNotePage', () => {
     });
     fireEvent.change(screen.getByLabelText('完成时间（可选）'), { target: { value: '20:15' } });
     fireEvent.click(screen.getByRole('button', { name: '补录完成事项' }));
-    await waitFor(() => expect(add).toHaveBeenCalledWith({
-      date: '2026-08-12',
-      content: '补录昨日评审',
-      completedAt: '20:15',
-    }));
+    await waitFor(() =>
+      expect(add).toHaveBeenCalledWith({
+        date: '2026-08-12',
+        content: '补录昨日评审',
+        completedAt: '20:15',
+      }),
+    );
 
-    fireEvent.keyDown(screen.getByRole('button', { name: '任务内容：完成界面原型' }), { key: 'F2' });
+    fireEvent.keyDown(screen.getByRole('button', { name: '任务内容：完成界面原型' }), {
+      key: 'F2',
+    });
     fireEvent.change(screen.getByRole('textbox', { name: '编辑任务：完成界面原型' }), {
       target: { value: '完成最终界面原型' },
     });
     const timeInput = screen.getByLabelText('编辑完成时间：完成界面原型');
     fireEvent.change(timeInput, { target: { value: '16:45' } });
     fireEvent.keyDown(timeInput, { key: 'Enter' });
-    await waitFor(() => expect(edit).toHaveBeenCalledWith({
-      date: '2026-08-12',
-      locator: expect.objectContaining({ line: 4 }),
-      content: '完成最终界面原型',
-      completedAt: '16:45',
-    }));
+    await waitFor(() =>
+      expect(edit).toHaveBeenCalledWith({
+        date: '2026-08-12',
+        locator: expect.objectContaining({ line: 4 }),
+        content: '完成最终界面原型',
+        completedAt: '16:45',
+      }),
+    );
 
     fireEvent.click(await screen.findByRole('button', { name: '删除任务：完成最终界面原型' }));
-    await waitFor(() => expect(remove).toHaveBeenCalledWith({
-      date: '2026-08-12',
-      locator: expect.objectContaining({ line: 4 }),
-    }));
+    await waitFor(() =>
+      expect(remove).toHaveBeenCalledWith({
+        date: '2026-08-12',
+        locator: expect.objectContaining({ line: 4 }),
+      }),
+    );
   });
 
   it('FILE_CHANGED 时载入最新快照并提示用户重新操作', async () => {
@@ -144,7 +171,9 @@ describe('FloatingNotePage', () => {
     const checkbox = await screen.findByRole('checkbox', { name: '完成任务：准备周会材料' });
     fireEvent.click(checkbox);
 
-    expect(await screen.findByText('数据文件已更新，已载入最新内容，请重新操作')).toBeInTheDocument();
+    expect(
+      await screen.findByText('数据文件已更新，已载入最新内容，请重新操作'),
+    ).toBeInTheDocument();
     expect(checkbox).not.toBeChecked();
   });
 
@@ -172,7 +201,9 @@ describe('FloatingNotePage', () => {
     const controller = renderPage();
     const originalGet = controller.api.today.get.bind(controller.api.today);
     let release: (() => void) | undefined;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const getToday = vi.spyOn(controller.api.today, 'get').mockImplementation(async () => {
       await gate;
       return originalGet();
@@ -197,7 +228,10 @@ describe('FloatingNotePage', () => {
     const menuButton = screen.getByRole('button', { name: '打开便利贴菜单' });
     expect(menuButton).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(menuButton);
-    expect(screen.getByRole('button', { name: '关闭便利贴菜单' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: '关闭便利贴菜单' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
     fireEvent.click(screen.getByRole('menuitem', { name: '导出本周周报' }));
 
     expect(await screen.findByLabelText('导出成功')).toHaveTextContent('周报-2026年第33周.txt');
@@ -240,7 +274,9 @@ describe('FloatingNotePage', () => {
     expect(await screen.findByLabelText('导出已取消')).toHaveAttribute('role', 'status');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '完成' }));
-    cancelled.api.report.export = vi.fn().mockResolvedValue({ status: 'failed', message: '磁盘空间不足' });
+    cancelled.api.report.export = vi
+      .fn()
+      .mockResolvedValue({ status: 'failed', message: '磁盘空间不足' });
     fireEvent.click(screen.getByRole('button', { name: '打开便利贴菜单' }));
     fireEvent.click(screen.getByRole('menuitem', { name: '导出本周周报' }));
     expect(await screen.findByLabelText('导出失败')).toHaveTextContent('磁盘空间不足');

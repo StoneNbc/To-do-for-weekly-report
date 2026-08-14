@@ -17,12 +17,17 @@ describe('AppRouter ElectronAPI contract', () => {
     expect(await screen.findByRole('textbox', { name: '添加今日任务' })).toBeInTheDocument();
   });
 
-  it('仅白名单 weekly 进入周记，未知 view 回退便利贴', async () => {
+  it('仅白名单 weekly 和 settings 进入对应页面，未知 view 回退便利贴', async () => {
     window.history.replaceState({}, '', '/?view=weekly');
     window.electronAPI = createMockElectronAPI().api;
     const { unmount } = render(<AppRouter />);
     expect(await screen.findByRole('button', { name: '一键导出周报 TXT' })).toBeInTheDocument();
     unmount();
+
+    window.history.replaceState({}, '', '/?view=settings');
+    const settingsView = render(<AppRouter />);
+    expect(await screen.findByRole('heading', { name: '设置' })).toBeInTheDocument();
+    settingsView.unmount();
 
     window.history.replaceState({}, '', '/?view=unexpected');
     render(<AppRouter />);

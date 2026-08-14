@@ -23,6 +23,7 @@ export type NoteAction =
   | { type: 'mutation-success'; snapshot: NoteSnapshot; notice?: string | undefined }
   | { type: 'mutation-failure'; error: ApiError }
   | { type: 'toggle-completed' }
+  | { type: 'set-completed-expanded'; expanded: boolean }
   | { type: 'set-notice'; notice: string | null }
   | { type: 'clear-error' };
 
@@ -69,6 +70,8 @@ export function noteReducer(state: NoteState, action: NoteAction): NoteState {
       return { ...state, mutation: 'idle', error: action.error };
     case 'toggle-completed':
       return { ...state, completedExpanded: !state.completedExpanded };
+    case 'set-completed-expanded':
+      return { ...state, completedExpanded: action.expanded };
     case 'set-notice':
       return { ...state, notice: action.notice };
     case 'clear-error':

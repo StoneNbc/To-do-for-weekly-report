@@ -22,6 +22,8 @@ import { ReportService } from './services/reportService';
 import { TrayManager } from './trayManager';
 import { getDefaultWindowPaths, WindowManager } from './windowManager';
 import { installLocalOnlyNetworkPolicy } from './platform/networkPolicy';
+import { SettingsService } from './services/settingsService';
+import { registerSettingsHandlers } from './ipc/settingsHandlers';
 
 // Main Process 组合根：这里只负责实例化和接线，文本规则与业务流程留在各自 Service。
 const dataPaths = resolveDataPaths({ app });
@@ -86,7 +88,20 @@ if (lifecycle.acquireSingleInstance()) {
           : {}),
         isQuitting: lifecycle.isQuitting,
       });
-      const shellActions = createShellActions(dataPaths.root);
+      const shellActions = createShellActions(dataPaths.root, dataPaths.logsDirectory);
+      const settingsService = new SettingsService({
+        config,
+        dataDirectory: dataPaths.root,
+        runtime: {
+          previewAppearance: (appearance) => windowManager?.previewAppearance(appearance),
+          applySettings: (snapshot) => {
+            windowManager?.applySettings(snapshot);
+            trayManager?.refreshMenu();
+          },
+          broadcastSettingsChanged: (snapshot) => windowManager?.broadcastSettingsChanged(snapshot),
+        },
+      });
+      windowManager.setSettingsCloseHandler(() => settingsService.cancelAppearancePreview());
       fileWatcher = new FileWatcherService({
         paths: dataPaths,
         todayRepository,
@@ -110,6 +125,7 @@ if (lifecycle.acquireSingleInstance()) {
         toggleNote: () => windowManager?.toggleFloatingNote(),
         showNote: () => windowManager?.showFloatingNote(),
         openWeekly: () => void windowManager?.openWeekly(),
+        openSettings: () => void windowManager?.openSettings(),
         exportCurrentWeek: () => {
           void reportService?.exportCurrentWeekFromMenu();
         },
@@ -118,8 +134,10 @@ if (lifecycle.acquireSingleInstance()) {
             .openDataDirectory()
             .catch((error) => logger.error('Data directory could not be opened', { error })),
         setAlwaysOnTop: (enabled) => {
-          windowManager?.setAlwaysOnTop(enabled);
-          trayManager?.refreshMenu();
+          void settingsService.update({ alwaysOnTop: enabled }).catch((error) => {
+            trayManager?.refreshMenu();
+            logger.error('Always-on-top setting could not be saved', { error });
+          });
         },
         requestQuit: () => lifecycle.requestQuit(),
         isNoteVisible: () => windowManager?.isFloatingNoteVisible() ?? false,
@@ -134,7 +152,12 @@ if (lifecycle.acquireSingleInstance()) {
       });
 
       // 所有 IPC handler 在 Renderer 加载前完成注册，避免首屏调用落入未注册通道。
-      registerPlatformHandlers(windowManager, shellActions.openDataDirectory, lifecycle);
+      registerPlatformHandlers(
+        windowManager,
+        shellActions.openDataDirectory,
+        lifecycle,
+        settingsService,
+      );
       registerBusinessHandlers({
         ipcMain,
         services: { task: taskService, weekly: weeklyService },
@@ -144,6 +167,7 @@ if (lifecycle.acquireSingleInstance()) {
           fileWatcher?.markAppWrite(getCurrentWeekPath(dataPaths, isoYear, isoWeek), revision),
       });
       registerReportHandlers({ ipcMain, reportService, logger });
+      registerSettingsHandlers({ ipcMain, settings: settingsService, shellActions, logger });
       // Scheduler 先执行启动补偿，再启动 Watcher；这样补偿写入不会被误判为外部编辑。
       await scheduler.start();
       await fileWatcher.start();
@@ -161,6 +185,7 @@ const registerPlatformHandlers = (
   windows: WindowManager,
   openDataDirectory: () => Promise<void>,
   appLifecycle: AppLifecycle,
+  settings: SettingsService,
 ): void => {
   // 平台通道同样把 Renderer 输入视为不可信数据，不直接传给 Electron API。
   ipcMain.handle(IPC.healthCheck, () => ({ status: 'ok' as const }));
@@ -168,16 +193,26 @@ const registerPlatformHandlers = (
     await windows.openWeekly();
   });
   ipcMain.handle(IPC.windowShowNote, () => windows.showFloatingNote());
+  ipcMain.handle(IPC.windowOpenSettings, async () => {
+    await windows.openSettings();
+  });
   ipcMain.handle(IPC.appOpenDataFolder, () => openDataDirectory());
-  ipcMain.handle(IPC.appSetAlwaysOnTop, (_event, enabled: unknown) => {
+  ipcMain.handle(IPC.appSetAlwaysOnTop, async (_event, enabled: unknown) => {
     if (typeof enabled !== 'boolean') {
       return {
         ok: false as const,
         error: { code: 'INVALID_INPUT' as const, message: '置顶状态必须为布尔值' },
       };
     }
-    windows.setAlwaysOnTop(enabled);
-    return { ok: true as const, data: undefined };
+    try {
+      await settings.update({ alwaysOnTop: enabled });
+      return { ok: true as const, data: undefined };
+    } catch {
+      return {
+        ok: false as const,
+        error: { code: 'IO_ERROR' as const, message: '设置暂时无法保存，请稍后重试' },
+      };
+    }
   });
   ipcMain.handle(IPC.appQuit, () => appLifecycle.requestQuit());
 };

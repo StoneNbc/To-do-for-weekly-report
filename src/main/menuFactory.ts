@@ -4,6 +4,7 @@ export interface DesktopCommands {
   toggleNote(): void;
   showNote(): void;
   openWeekly(): void;
+  openSettings(): void;
   exportCurrentWeek(): void;
   openDataDirectory(): void;
   setAlwaysOnTop(enabled: boolean): void;
@@ -42,6 +43,7 @@ export class MenuFactory {
         checked: this.commands.isAlwaysOnTop(),
         click: (item) => this.commands.setAlwaysOnTop(item.checked),
       },
+      { label: '设置', click: () => this.commands.openSettings() },
       { type: 'separator' },
       { label: '退出', click: () => this.commands.requestQuit() },
     ];

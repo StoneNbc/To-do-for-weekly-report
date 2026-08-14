@@ -10,7 +10,7 @@ import type { AppLogger } from './logging/logger';
 import type { MenuFactory } from './menuFactory';
 import { restoreVisibleBounds } from './platform/displayBounds';
 import type { ConfigService } from './services/configService';
-import type { DataChangedEvent } from '../shared/domain';
+import type { DataChangedEvent, NoteAppearance, SettingsSnapshot } from '../shared/domain';
 import { IPC } from './ipc/channels';
 
 export interface WindowManagerOptions {
@@ -34,7 +34,9 @@ export class WindowManager {
   readonly #options: WindowManagerOptions;
   #noteWindow: BrowserWindow | null = null;
   #weeklyWindow: BrowserWindow | null = null;
+  #settingsWindow: BrowserWindow | null = null;
   #menuFactory: MenuFactory | null = null;
+  #settingsCloseHandler: (() => void) | null = null;
   #boundsTimer: NodeJS.Timeout | null = null;
 
   constructor(options: WindowManagerOptions) {
@@ -43,6 +45,10 @@ export class WindowManager {
 
   setMenuFactory(menuFactory: MenuFactory): void {
     this.#menuFactory = menuFactory;
+  }
+
+  setSettingsCloseHandler(handler: () => void): void {
+    this.#settingsCloseHandler = handler;
   }
 
   async createFloatingNote(): Promise<BrowserWindow> {
@@ -67,6 +73,7 @@ export class WindowManager {
       resizable: true,
       show: false,
       alwaysOnTop: config.always_on_top,
+      opacity: config.note_opacity,
       fullscreenable: false,
       webPreferences: {
         // Renderer 永远运行在隔离沙箱中，只通过 Preload 获取白名单能力。
@@ -135,6 +142,40 @@ export class WindowManager {
     return weeklyWindow;
   }
 
+  async openSettings(): Promise<BrowserWindow> {
+    if (this.#settingsWindow && !this.#settingsWindow.isDestroyed()) {
+      if (this.#settingsWindow.isMinimized()) this.#settingsWindow.restore();
+      this.#settingsWindow.show();
+      this.#settingsWindow.focus();
+      return this.#settingsWindow;
+    }
+
+    const settingsWindow = new BrowserWindow({
+      width: 560,
+      height: 640,
+      minWidth: 480,
+      minHeight: 440,
+      title: '设置',
+      show: false,
+      webPreferences: {
+        preload: this.#options.preloadPath,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    this.#settingsWindow = settingsWindow;
+    settingsWindow.on('ready-to-show', () => {
+      if (!settingsWindow.isDestroyed()) settingsWindow.show();
+    });
+    settingsWindow.on('closed', () => {
+      if (this.#settingsWindow === settingsWindow) this.#settingsWindow = null;
+      this.#settingsCloseHandler?.();
+    });
+    await this.#loadView(settingsWindow, 'settings');
+    return settingsWindow;
+  }
+
   showFloatingNote(): void {
     const window = this.#noteWindow;
     if (!window || window.isDestroyed()) return;
@@ -162,6 +203,7 @@ export class WindowManager {
     const focused = BrowserWindow.getFocusedWindow();
     if (focused && !focused.isDestroyed()) return focused;
     if (this.#weeklyWindow && !this.#weeklyWindow.isDestroyed()) return this.#weeklyWindow;
+    if (this.#settingsWindow && !this.#settingsWindow.isDestroyed()) return this.#settingsWindow;
     if (this.#noteWindow && !this.#noteWindow.isDestroyed()) return this.#noteWindow;
     return undefined;
   }
@@ -170,6 +212,25 @@ export class WindowManager {
     // 事件只声明哪些数据失效，不携带业务正文；各窗口自行重新拉取权威快照。
     for (const window of [this.#noteWindow, this.#weeklyWindow]) {
       if (window && !window.isDestroyed()) window.webContents.send(IPC.dataChanged, event);
+    }
+  }
+
+  previewAppearance(appearance: NoteAppearance): void {
+    const noteWindow = this.#noteWindow;
+    if (!noteWindow || noteWindow.isDestroyed()) return;
+    noteWindow.setOpacity(appearance.noteOpacity);
+    noteWindow.webContents.send(IPC.appearancePreviewed, appearance);
+  }
+
+  applySettings(snapshot: SettingsSnapshot): void {
+    const noteWindow = this.#noteWindow;
+    if (noteWindow && !noteWindow.isDestroyed()) noteWindow.setOpacity(snapshot.noteOpacity);
+    this.#applyAlwaysOnTop(snapshot.alwaysOnTop);
+  }
+
+  broadcastSettingsChanged(snapshot: SettingsSnapshot): void {
+    for (const window of [this.#noteWindow, this.#weeklyWindow, this.#settingsWindow]) {
+      if (window && !window.isDestroyed()) window.webContents.send(IPC.settingsChanged, snapshot);
     }
   }
 
@@ -191,10 +252,11 @@ export class WindowManager {
   closeAll(): void {
     this.saveCurrentBounds();
     this.#weeklyWindow?.close();
+    this.#settingsWindow?.close();
     this.#noteWindow?.close();
   }
 
-  async #loadView(window: BrowserWindow, view: 'note' | 'weekly'): Promise<void> {
+  async #loadView(window: BrowserWindow, view: 'note' | 'weekly' | 'settings'): Promise<void> {
     try {
       // 禁止页面自行打开新窗口或导航到非应用 origin，缩小恶意内容的攻击面。
       window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

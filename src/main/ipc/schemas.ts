@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import {
+  isValidNoteColor,
+  isValidNoteOpacity,
+  normalizeNoteColor,
+} from '../../shared/noteAppearance';
 
 // IPC 是安全边界：即使 Renderer 有 TypeScript 类型，Main 仍要验证运行时输入。
 export const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -18,3 +23,26 @@ export const isoWeekInputSchema = z.object({
   isoYear: z.number().int().min(1900).max(9999),
   isoWeek: z.number().int().min(1).max(53),
 });
+
+export const noteColorSchema = z
+  .string()
+  .transform(normalizeNoteColor)
+  .refine(isValidNoteColor, { message: '便利贴颜色必须是六位十六进制色值' });
+export const noteOpacitySchema = z.number().refine(isValidNoteOpacity, {
+  message: '便利贴不透明度必须在 60% 到 100% 之间，并以 5% 为步进',
+});
+
+export const appearancePreviewSchema = z
+  .object({
+    noteColor: noteColorSchema.optional(),
+    noteOpacity: noteOpacitySchema.optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, { message: '预览内容不能为空' });
+
+export const settingsPatchSchema = appearancePreviewSchema
+  .safeExtend({
+    alwaysOnTop: z.boolean().optional(),
+    completedExpanded: z.boolean().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, { message: '设置修改不能为空' });

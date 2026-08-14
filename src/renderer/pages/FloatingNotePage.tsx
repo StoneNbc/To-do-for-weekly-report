@@ -1,10 +1,19 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import type {
   DayRecordSnapshot,
   HistoricalTaskView,
   TaskLocator,
   TodaySnapshot,
   TodayTaskView,
+  SettingsSnapshot,
 } from '../../shared/domain';
 import type { ApiResult, ExportReportResult } from '../../shared/results';
 import { addLocalDays, getIsoWeekInfo, getLocalDate } from '../../shared/dateUtils';
@@ -20,6 +29,8 @@ import { useElectronEvents } from '../hooks/useElectronEvents';
 import { useElectronAPI } from '../hooks/useElectronAPI';
 import { useRefreshQueue } from '../hooks/useRefreshQueue';
 import { createInitialNoteState, noteReducer, type NoteSnapshot } from '../state/noteReducer';
+import { DEFAULT_NOTE_COLOR, DEFAULT_NOTE_OPACITY } from '../../shared/constants';
+import { getNoteTheme } from '../../shared/noteAppearance';
 
 function isTodaySnapshot(snapshot: NoteSnapshot | null): snapshot is TodaySnapshot {
   return snapshot !== null && 'currentDate' in snapshot;
@@ -31,6 +42,10 @@ export function FloatingNotePage() {
   const [state, dispatch] = useReducer(noteReducer, today, createInitialNoteState);
   const [menuOpen, setMenuOpen] = useState(false);
   const [alwaysOnTop, setAlwaysOnTop] = useState(true);
+  const [appearance, setAppearance] = useState({
+    noteColor: DEFAULT_NOTE_COLOR,
+    noteOpacity: DEFAULT_NOTE_OPACITY,
+  });
   const [exporting, setExporting] = useState(false);
   const [exportResult, setExportResult] = useState<ExportReportResult | null>(null);
   const requestTokenRef = useRef(0);
@@ -61,6 +76,26 @@ export function FloatingNotePage() {
   useEffect(() => {
     void loadToday();
   }, [loadToday]);
+
+  const applySettings = useCallback((snapshot: SettingsSnapshot) => {
+    setAlwaysOnTop(snapshot.alwaysOnTop);
+    setAppearance({ noteColor: snapshot.noteColor, noteOpacity: snapshot.noteOpacity });
+    dispatch({ type: 'set-completed-expanded', expanded: snapshot.completedExpanded });
+  }, []);
+
+  useEffect(() => {
+    void api.settings.get().then((result) => {
+      if (result.ok) applySettings(result.data);
+    });
+    const unsubscribeSettings = api.events.onSettingsChanged(applySettings);
+    const unsubscribePreview = api.events.onAppearancePreviewed((preview) =>
+      setAppearance(preview),
+    );
+    return () => {
+      unsubscribeSettings();
+      unsubscribePreview();
+    };
+  }, [api, applySettings]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -244,15 +279,28 @@ export function FloatingNotePage() {
             onClick={() => {
               const next = !alwaysOnTop;
               setAlwaysOnTop(next);
-              void api.app.setAlwaysOnTop(next);
+              void api.settings.update({ alwaysOnTop: next }).then((result) => {
+                if (!result.ok) {
+                  setAlwaysOnTop(!next);
+                  dispatch({ type: 'mutation-failure', error: result.error });
+                }
+              });
             }}
             role="menuitemcheckbox"
             type="button"
           >
             保持置顶 <span aria-hidden="true">{alwaysOnTop ? '✓' : ''}</span>
           </button>
-          <button className="menu-item" disabled role="menuitem" type="button">
-            设置（即将推出）
+          <button
+            className="menu-item"
+            onClick={() => {
+              setMenuOpen(false);
+              void api.window.openSettings();
+            }}
+            role="menuitem"
+            type="button"
+          >
+            设置
           </button>
           <button
             className="menu-item text-red-700"
@@ -267,8 +315,24 @@ export function FloatingNotePage() {
     [alwaysOnTop, api, exportCurrentWeek, exporting, menuOpen],
   );
 
+  const theme = getNoteTheme(appearance.noteColor);
+  const noteStyle = {
+    '--note-bg': appearance.noteColor,
+    '--note-fg': theme.foreground,
+    '--note-muted': theme.muted,
+    '--note-faint': theme.faint,
+    '--note-surface': theme.surface,
+    '--note-surface-strong': theme.surfaceStrong,
+    '--note-border': theme.border,
+    '--note-accent': theme.accent,
+    '--note-focus': theme.focus,
+  } as CSSProperties;
+
   return (
-    <main className="relative flex h-screen min-h-[280px] flex-col overflow-hidden bg-note p-3 text-stone-800">
+    <main
+      className="note-root relative flex h-screen min-h-[280px] flex-col overflow-hidden p-3"
+      style={noteStyle}
+    >
       <TitleBar
         isHistory={state.mode === 'history'}
         onNextDay={() => {
@@ -317,7 +381,17 @@ export function FloatingNotePage() {
               onDelete={(locator) => void applyMutation(() => api.today.delete(locator))}
               onEdit={editToday}
               onToggle={(locator) => void applyMutation(() => api.today.toggle(locator))}
-              onToggleExpanded={() => dispatch({ type: 'toggle-completed' })}
+              onToggleExpanded={() => {
+                const previous = state.completedExpanded;
+                const next = !previous;
+                dispatch({ type: 'set-completed-expanded', expanded: next });
+                void api.settings.update({ completedExpanded: next }).then((result) => {
+                  if (!result.ok) {
+                    dispatch({ type: 'set-completed-expanded', expanded: previous });
+                    dispatch({ type: 'mutation-failure', error: result.error });
+                  }
+                });
+              }}
               tasks={completedTasks}
             />
           </>

@@ -2,6 +2,9 @@ import type { ElectronAPI } from '../../preload/apiTypes';
 import type {
   DataChangedEvent,
   DayRecordSnapshot,
+  SettingsPatch,
+  SettingsSnapshot,
+  NoteAppearance,
   TodaySnapshot,
   WeeklySnapshot,
 } from '../../shared/domain';
@@ -67,6 +70,7 @@ export const mockWeeklySnapshot: WeeklySnapshot = {
 export interface MockElectronAPIController {
   api: ElectronAPI;
   emit(event: DataChangedEvent): void;
+  emitSettings(snapshot?: SettingsSnapshot): void;
 }
 
 export function createMockElectronAPI(
@@ -74,8 +78,17 @@ export function createMockElectronAPI(
 ): MockElectronAPIController {
   let today = clone(mockTodaySnapshot);
   let history = clone(mockHistoricalSnapshot);
+  let settings: SettingsSnapshot = {
+    noteColor: '#FFF8E7',
+    noteOpacity: 1,
+    alwaysOnTop: true,
+    completedExpanded: false,
+    dataDirectory: '/本机/悬浮便利贴/data',
+  };
   let revisionSequence = 1;
   const listeners = new Set<(event: DataChangedEvent) => void>();
+  const settingsListeners = new Set<(snapshot: SettingsSnapshot) => void>();
+  const appearanceListeners = new Set<(appearance: NoteAppearance) => void>();
 
   const nextTodaySnapshot = (tasks: TodaySnapshot['tasks']): TodaySnapshot => {
     const revision = `today-r-wave2-${revisionSequence++}`;
@@ -252,6 +265,7 @@ export function createMockElectronAPI(
     window: {
       async openWeekly() {},
       async showNote() {},
+      async openSettings() {},
     },
     app: {
       async openDataFolder() {},
@@ -260,10 +274,61 @@ export function createMockElectronAPI(
       },
       async quit() {},
     },
+    settings: {
+      async get() {
+        if (scenario === 'io-error') return failureForScenario<SettingsSnapshot>()!;
+        return { ok: true as const, data: clone(settings) };
+      },
+      async previewAppearance(input) {
+        if (scenario === 'io-error') return failureForScenario<void>()!;
+        const appearance = {
+          noteColor: input.noteColor ?? settings.noteColor,
+          noteOpacity: input.noteOpacity ?? settings.noteOpacity,
+        };
+        appearanceListeners.forEach((listener) => listener(clone(appearance)));
+        return { ok: true as const, data: undefined };
+      },
+      async update(input: SettingsPatch) {
+        if (scenario === 'io-error') return failureForScenario<SettingsSnapshot>()!;
+        settings = {
+          ...settings,
+          ...(input.noteColor !== undefined ? { noteColor: input.noteColor } : {}),
+          ...(input.noteOpacity !== undefined ? { noteOpacity: input.noteOpacity } : {}),
+          ...(input.alwaysOnTop !== undefined ? { alwaysOnTop: input.alwaysOnTop } : {}),
+          ...(input.completedExpanded !== undefined
+            ? { completedExpanded: input.completedExpanded }
+            : {}),
+        };
+        settingsListeners.forEach((listener) => listener(clone(settings)));
+        return { ok: true as const, data: clone(settings) };
+      },
+      async resetAppearance() {
+        if (scenario === 'io-error') return failureForScenario<SettingsSnapshot>()!;
+        settings = { ...settings, noteColor: '#FFF8E7', noteOpacity: 1 };
+        settingsListeners.forEach((listener) => listener(clone(settings)));
+        return { ok: true as const, data: clone(settings) };
+      },
+      async openLogsFolder() {
+        if (scenario === 'io-error') return failureForScenario<void>()!;
+        return { ok: true as const, data: undefined };
+      },
+      async copyDataPath() {
+        if (scenario === 'io-error') return failureForScenario<void>()!;
+        return { ok: true as const, data: undefined };
+      },
+    },
     events: {
       onDataChanged(listener: (event: DataChangedEvent) => void) {
         listeners.add(listener);
         return () => listeners.delete(listener);
+      },
+      onSettingsChanged(listener: (snapshot: SettingsSnapshot) => void) {
+        settingsListeners.add(listener);
+        return () => settingsListeners.delete(listener);
+      },
+      onAppearancePreviewed(listener: (appearance: NoteAppearance) => void) {
+        appearanceListeners.add(listener);
+        return () => appearanceListeners.delete(listener);
       },
     },
   } satisfies ElectronAPI;
@@ -272,6 +337,10 @@ export function createMockElectronAPI(
     api,
     emit(event) {
       listeners.forEach((listener) => listener(event));
+    },
+    emitSettings(snapshot = settings) {
+      settings = clone(snapshot);
+      settingsListeners.forEach((listener) => listener(clone(settings)));
     },
   };
 }

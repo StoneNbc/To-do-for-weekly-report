@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC } from '../main/ipc/channels';
-import type { DataChangedEvent } from '../shared/domain';
+import type {
+  AppearancePreview,
+  DataChangedEvent,
+  SettingsPatch,
+  SettingsSnapshot,
+  NoteAppearance,
+} from '../shared/domain';
 import type { ElectronAPI } from './apiTypes';
 
 // Preload 只做参数转发和事件桥接；验证、文件访问与业务规则全部留在 Main Process。
@@ -30,11 +36,21 @@ const api: ElectronAPI = {
   window: {
     openWeekly: () => ipcRenderer.invoke(IPC.windowOpenWeekly),
     showNote: () => ipcRenderer.invoke(IPC.windowShowNote),
+    openSettings: () => ipcRenderer.invoke(IPC.windowOpenSettings),
   },
   app: {
     openDataFolder: () => ipcRenderer.invoke(IPC.appOpenDataFolder),
     setAlwaysOnTop: (enabled) => ipcRenderer.invoke(IPC.appSetAlwaysOnTop, enabled),
     quit: () => ipcRenderer.invoke(IPC.appQuit),
+  },
+  settings: {
+    get: () => ipcRenderer.invoke(IPC.settingsGet),
+    previewAppearance: (input: AppearancePreview) =>
+      ipcRenderer.invoke(IPC.settingsPreviewAppearance, input),
+    update: (input: SettingsPatch) => ipcRenderer.invoke(IPC.settingsUpdate, input),
+    resetAppearance: () => ipcRenderer.invoke(IPC.settingsResetAppearance),
+    openLogsFolder: () => ipcRenderer.invoke(IPC.settingsOpenLogsFolder),
+    copyDataPath: () => ipcRenderer.invoke(IPC.settingsCopyDataPath),
   },
   events: {
     onDataChanged: (listener) => {
@@ -43,6 +59,18 @@ const api: ElectronAPI = {
       ipcRenderer.on(IPC.dataChanged, handler);
       // 暴露明确的清理函数，避免 Renderer 重新渲染后残留旧监听器。
       return () => ipcRenderer.removeListener(IPC.dataChanged, handler);
+    },
+    onSettingsChanged: (listener) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload: SettingsSnapshot) =>
+        listener(payload);
+      ipcRenderer.on(IPC.settingsChanged, handler);
+      return () => ipcRenderer.removeListener(IPC.settingsChanged, handler);
+    },
+    onAppearancePreviewed: (listener) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload: NoteAppearance) =>
+        listener(payload);
+      ipcRenderer.on(IPC.appearancePreviewed, handler);
+      return () => ipcRenderer.removeListener(IPC.appearancePreviewed, handler);
     },
   },
 };

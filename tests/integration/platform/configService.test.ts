@@ -22,7 +22,9 @@ const makeConfigPath = async (): Promise<string> => {
 };
 
 afterEach(async () => {
-  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  await Promise.all(
+    directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
+  );
 });
 
 describe('ConfigService', () => {
@@ -35,6 +37,8 @@ describe('ConfigService', () => {
 
     expect(config.cleanup_time).toBe('00:00');
     expect(config.always_on_top).toBe(true);
+    expect(config.note_color).toBe('#FFF8E7');
+    expect(config.note_opacity).toBe(1);
     expect(persisted.schema_version).toBe(1);
   });
 
@@ -50,6 +54,8 @@ describe('ConfigService', () => {
         always_on_top: 'yes',
         window_bounds: null,
         completed_expanded: true,
+        note_color: '#bad',
+        note_opacity: 0.2,
         future_setting: { enabled: true },
       }),
       'utf8',
@@ -62,8 +68,29 @@ describe('ConfigService', () => {
     expect(config.cleanup_time).toBe('00:00');
     expect(config.always_on_top).toBe(true);
     expect(config.agent).toBe('custom-local');
+    expect(config.note_color).toBe('#FFF8E7');
+    expect(config.note_opacity).toBe(1);
     expect(config.future_setting).toEqual({ enabled: true });
     expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it('serializes reliable setting commits and preserves unknown fields', async () => {
+    const configFile = await makeConfigPath();
+    const service = new ConfigService({ configFile, logger: makeLogger(), writeDelayMs: 1 });
+    await service.initialize();
+    service.update({ window_bounds: { x: 12, y: 24, width: 340, height: 420 } });
+
+    await Promise.all([
+      service.commit({ note_color: '#e0f2fe' }),
+      service.commit({ note_opacity: 0.8, completed_expanded: true }),
+    ]);
+    await service.flush();
+
+    const persisted = JSON.parse(await readFile(configFile, 'utf8')) as Record<string, unknown>;
+    expect(persisted.note_color).toBe('#E0F2FE');
+    expect(persisted.note_opacity).toBe(0.8);
+    expect(persisted.completed_expanded).toBe(true);
+    expect(persisted.window_bounds).toEqual({ x: 12, y: 24, width: 340, height: 420 });
   });
 
   it('coalesces window state changes and flushes the latest value', async () => {

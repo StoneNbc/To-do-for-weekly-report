@@ -272,7 +272,8 @@ pnpm dist
 - [ ] macOS Developer ID 签名与公证。
 - [ ] Windows 10/11 实机打包与验收。
 - [ ] Electron GUI 自动化测试。
-- [ ] 设置页与自定义周报模板。
+- [x] 设置窗口、便利贴颜色/透明度与本地诊断入口。
+- [ ] 自定义周报模板。
 - [ ] 可选的本地 OllamaAgent 周报润色。
 
 ## 参与开发

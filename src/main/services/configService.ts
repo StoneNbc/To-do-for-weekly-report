@@ -3,6 +3,11 @@ import path from 'node:path';
 import { z } from 'zod';
 import { DEFAULT_CONFIG } from '../../shared/constants';
 import type { AppConfig, WindowBounds } from '../../shared/domain';
+import {
+  isValidNoteColor,
+  isValidNoteOpacity,
+  normalizeNoteColor,
+} from '../../shared/noteAppearance';
 import type { AppLogger } from '../logging/logger';
 
 const windowBoundsSchema = z.object({
@@ -20,10 +25,15 @@ const knownConfigSchema = z.object({
   always_on_top: z.boolean(),
   window_bounds: windowBoundsSchema.nullable(),
   completed_expanded: z.boolean(),
+  note_color: z.string().transform(normalizeNoteColor).refine(isValidNoteColor),
+  note_opacity: z.number().refine(isValidNoteOpacity),
 });
 
 export type ConfigPatch = Partial<
-  Pick<AppConfig, 'always_on_top' | 'window_bounds' | 'completed_expanded'>
+  Pick<
+    AppConfig,
+    'always_on_top' | 'window_bounds' | 'completed_expanded' | 'note_color' | 'note_opacity'
+  >
 >;
 
 export interface ConfigServiceOptions {
@@ -66,6 +76,7 @@ export class ConfigService {
   #config: AppConfig = cloneDefaults();
   #timer: NodeJS.Timeout | null = null;
   #writeQueue: Promise<void> = Promise.resolve();
+  #fieldVersions = new Map<keyof ConfigPatch, number>();
 
   constructor({ configFile, logger, writeDelayMs = 500 }: ConfigServiceOptions) {
     this.#configFile = configFile;
@@ -105,17 +116,48 @@ export class ConfigService {
   }
 
   update(patch: ConfigPatch): AppConfig {
-    const parsedPatch: ConfigPatch = {};
-    if ('always_on_top' in patch)
-      parsedPatch.always_on_top = z.boolean().parse(patch.always_on_top);
-    if ('completed_expanded' in patch)
-      parsedPatch.completed_expanded = z.boolean().parse(patch.completed_expanded);
-    if ('window_bounds' in patch)
-      parsedPatch.window_bounds = windowBoundsSchema.nullable().parse(patch.window_bounds);
+    const parsedPatch = parsePatch(patch);
     this.#config = { ...this.#config, ...parsedPatch };
+    this.#markFieldsChanged(parsedPatch);
     // 高频窗口移动只更新内存并防抖写盘，避免每个 resize 事件都触发 I/O。
     this.#scheduleWrite();
     return this.get();
+  }
+
+  /** 设置页使用的可靠提交：写盘成功后才发布字段，失败时内存配置保持不变。 */
+  async commit(patch: ConfigPatch): Promise<AppConfig> {
+    const parsedPatch = parsePatch(patch);
+    const fields = Object.keys(parsedPatch) as Array<keyof ConfigPatch>;
+    const versions = new Map<keyof ConfigPatch, number>();
+    for (const field of fields) {
+      const nextVersion = (this.#fieldVersions.get(field) ?? 0) + 1;
+      this.#fieldVersions.set(field, nextVersion);
+      versions.set(field, nextVersion);
+    }
+
+    if (this.#timer) {
+      clearTimeout(this.#timer);
+      this.#timer = null;
+      await this.#enqueueWrite();
+    }
+
+    const operation = this.#writeQueue.then(async () => {
+      const candidate = { ...this.#config, ...parsedPatch };
+      await this.#writeConfig(candidate);
+      const published: ConfigPatch = {};
+      for (const field of fields) {
+        if (this.#fieldVersions.get(field) === versions.get(field)) {
+          Object.assign(published, { [field]: parsedPatch[field] });
+        }
+      }
+      this.#config = { ...this.#config, ...published };
+      return this.get();
+    });
+    this.#writeQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
   }
 
   setWindowBounds(bounds: WindowBounds): AppConfig {
@@ -136,23 +178,28 @@ export class ConfigService {
     if (this.#timer) clearTimeout(this.#timer);
     this.#timer = setTimeout(() => {
       this.#timer = null;
-      void this.#enqueueWrite();
+      void this.#enqueueWrite().catch(() => undefined);
     }, this.#writeDelayMs);
   }
 
   #enqueueWrite(): Promise<void> {
     // 所有配置写入串行，后到的状态不会被先到但更慢的写入覆盖。
-    this.#writeQueue = this.#writeQueue.then(() => this.#writeNow());
-    return this.#writeQueue;
+    const operation = this.#writeQueue.then(() => this.#writeNow());
+    this.#writeQueue = operation.catch(() => undefined);
+    return operation;
   }
 
   async #writeNow(): Promise<void> {
+    await this.#writeConfig(this.#config);
+  }
+
+  async #writeConfig(config: AppConfig): Promise<void> {
     const temporaryFile = path.join(
       path.dirname(this.#configFile),
       `.${path.basename(this.#configFile)}.${process.pid}.${Date.now()}.tmp`,
     );
     await mkdir(path.dirname(this.#configFile), { recursive: true });
-    await writeFile(temporaryFile, `${JSON.stringify(this.#config, null, 2)}\n`, 'utf8');
+    await writeFile(temporaryFile, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
     try {
       await rename(temporaryFile, this.#configFile);
     } catch (error) {
@@ -160,4 +207,24 @@ export class ConfigService {
       throw error;
     }
   }
+
+  #markFieldsChanged(patch: ConfigPatch): void {
+    for (const field of Object.keys(patch) as Array<keyof ConfigPatch>) {
+      this.#fieldVersions.set(field, (this.#fieldVersions.get(field) ?? 0) + 1);
+    }
+  }
 }
+
+const parsePatch = (patch: ConfigPatch): ConfigPatch => {
+  const parsedPatch: ConfigPatch = {};
+  if ('always_on_top' in patch) parsedPatch.always_on_top = z.boolean().parse(patch.always_on_top);
+  if ('completed_expanded' in patch)
+    parsedPatch.completed_expanded = z.boolean().parse(patch.completed_expanded);
+  if ('window_bounds' in patch)
+    parsedPatch.window_bounds = windowBoundsSchema.nullable().parse(patch.window_bounds);
+  if ('note_color' in patch)
+    parsedPatch.note_color = knownConfigSchema.shape.note_color.parse(patch.note_color);
+  if ('note_opacity' in patch)
+    parsedPatch.note_opacity = knownConfigSchema.shape.note_opacity.parse(patch.note_opacity);
+  return parsedPatch;
+};
