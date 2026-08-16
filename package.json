@@ -2,11 +2,11 @@
   "name": "sticky-weekly",
   "version": "0.1.0",
   "private": true,
-  "description": "完全本地运行的桌面悬浮便利贴与周报工具",
+  "description": "本地优先、支持可选远程 LLM 的桌面悬浮便利贴与周报工具",
   "type": "module",
   "main": "dist-electron/main/index.cjs",
   "scripts": {
-    "dev": "concurrently -k -n renderer,electron-build,electron \"vite --host 127.0.0.1\" \"tsup --watch\" \"wait-on tcp:5173 file:dist-electron/main/index.cjs file:dist-electron/preload/index.cjs && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "dev": "concurrently -k -n renderer,electron-build,electron \"vite --host 127.0.0.1 --port 5173 --strictPort\" \"tsup --watch\" \"wait-on tcp:5173 file:dist-electron/main/index.cjs file:dist-electron/preload/index.cjs && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
     "build": "pnpm build:renderer && pnpm build:electron",
     "build:renderer": "vite build",
     "build:electron": "tsup",
