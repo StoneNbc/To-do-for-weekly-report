@@ -12,6 +12,7 @@ import { restoreVisibleBounds } from './platform/displayBounds';
 import type { ConfigService } from './services/configService';
 import type { DataChangedEvent, NoteAppearance, SettingsSnapshot } from '../shared/domain';
 import { IPC } from './ipc/channels';
+import { SettingsCloseGuard } from './services/settingsCloseGuard';
 
 export interface WindowManagerOptions {
   config: ConfigService;
@@ -37,6 +38,7 @@ export class WindowManager {
   #settingsWindow: BrowserWindow | null = null;
   #menuFactory: MenuFactory | null = null;
   #settingsCloseHandler: (() => void) | null = null;
+  readonly #settingsCloseGuard = new SettingsCloseGuard();
   #boundsTimer: NodeJS.Timeout | null = null;
   #pendingReportGeneration = false;
 
@@ -50,6 +52,17 @@ export class WindowManager {
 
   setSettingsCloseHandler(handler: () => void): void {
     this.#settingsCloseHandler = handler;
+  }
+
+  setSettingsDirty(dirty: boolean): void {
+    this.#settingsCloseGuard.setDirty(dirty);
+  }
+
+  discardSettingsChangesAndClose(): void {
+    const window = this.#settingsWindow;
+    if (!window || window.isDestroyed()) return;
+    this.#settingsCloseGuard.allowDiscardOnce();
+    window.close();
   }
 
   async createFloatingNote(): Promise<BrowserWindow> {
@@ -176,11 +189,19 @@ export class WindowManager {
       },
     });
     this.#settingsWindow = settingsWindow;
+    this.#settingsCloseGuard.reset();
     settingsWindow.on('ready-to-show', () => {
       if (!settingsWindow.isDestroyed()) settingsWindow.show();
     });
+    settingsWindow.on('close', (event) => {
+      if (this.#settingsCloseGuard.shouldPreventClose(this.#options.isQuitting())) {
+        event.preventDefault();
+        settingsWindow.webContents.send(IPC.settingsCloseRequested);
+      }
+    });
     settingsWindow.on('closed', () => {
       if (this.#settingsWindow === settingsWindow) this.#settingsWindow = null;
+      this.#settingsCloseGuard.reset();
       this.#settingsCloseHandler?.();
     });
     await this.#loadView(settingsWindow, 'settings');

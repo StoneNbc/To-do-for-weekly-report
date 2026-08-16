@@ -6,6 +6,7 @@ import type {
   SettingsPatch,
   SettingsSnapshot,
   NoteAppearance,
+  LlmConnectionTestInput,
   ReportSettingsPatch,
 } from '../shared/domain';
 import type { ElectronAPI } from './apiTypes';
@@ -43,6 +44,9 @@ const api: ElectronAPI = {
     generateCurrentWeekReport: () => ipcRenderer.invoke(IPC.windowGenerateCurrentWeekReport),
     showNote: () => ipcRenderer.invoke(IPC.windowShowNote),
     openSettings: () => ipcRenderer.invoke(IPC.windowOpenSettings),
+    setSettingsDirty: (dirty) => ipcRenderer.invoke(IPC.windowSetSettingsDirty, dirty),
+    discardSettingsChangesAndClose: () =>
+      ipcRenderer.invoke(IPC.windowDiscardSettingsChangesAndClose),
   },
   app: {
     openDataFolder: () => ipcRenderer.invoke(IPC.appOpenDataFolder),
@@ -63,7 +67,7 @@ const api: ElectronAPI = {
     preview: (template) => ipcRenderer.invoke(IPC.reportSettingsPreview, template),
     getDefaultText: (kind) => ipcRenderer.invoke(IPC.reportSettingsGetDefaultTemplate, kind),
     save: (input: ReportSettingsPatch) => ipcRenderer.invoke(IPC.reportSettingsSave, input),
-    testConnection: (input: ReportSettingsPatch) =>
+    testConnection: (input: LlmConnectionTestInput) =>
       ipcRenderer.invoke(IPC.reportSettingsTestConnection, input),
     confirmConsent: () => ipcRenderer.invoke(IPC.reportSettingsConfirmConsent),
   },
@@ -91,6 +95,11 @@ const api: ElectronAPI = {
       const handler = () => listener();
       ipcRenderer.on(IPC.reportGenerationRequested, handler);
       return () => ipcRenderer.removeListener(IPC.reportGenerationRequested, handler);
+    },
+    onSettingsCloseRequested: (listener) => {
+      const handler = () => listener();
+      ipcRenderer.on(IPC.settingsCloseRequested, handler);
+      return () => ipcRenderer.removeListener(IPC.settingsCloseRequested, handler);
     },
   },
 };

@@ -250,6 +250,13 @@ const registerPlatformHandlers = (
   ipcMain.handle(IPC.windowOpenSettings, async () => {
     await windows.openSettings();
   });
+  ipcMain.handle(IPC.windowSetSettingsDirty, (_event, dirty: unknown) => {
+    if (typeof dirty !== 'boolean') throw new RangeError('设置修改状态必须是布尔值');
+    windows.setSettingsDirty(dirty);
+  });
+  ipcMain.handle(IPC.windowDiscardSettingsChangesAndClose, () => {
+    windows.discardSettingsChangesAndClose();
+  });
   ipcMain.handle(IPC.appOpenDataFolder, () => openDataDirectory());
   ipcMain.handle(IPC.appSetAlwaysOnTop, async (_event, enabled: unknown) => {
     if (typeof enabled !== 'boolean') {

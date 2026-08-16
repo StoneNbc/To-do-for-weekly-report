@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import './setup';
 import { createMockElectronAPI } from '../../src/renderer/dev/mockElectronAPI';
@@ -91,8 +91,7 @@ describe('SettingsPage', () => {
       expect(save).toHaveBeenCalledWith(
         expect.objectContaining({
           mode: 'remote-llm',
-          remoteTemplate:
-            '【工作记录】\n{{tasks}}\n【收获与成长】\n【不足与反思】\n【下周计划】',
+          remoteTemplate: '【工作记录】\n{{tasks}}\n【收获与成长】\n【不足与反思】\n【下周计划】',
           prompt: '使用第一人称，只依据提供的事实。',
           apiKey: 'sk-new-secret',
           llm: expect.objectContaining({ provider: 'kimi', model: 'kimi-k3' }),
@@ -132,6 +131,49 @@ describe('SettingsPage', () => {
         }),
       ),
     );
+  });
+
+  it('有未保存的周报设置时拦截关闭，并允许继续编辑或确认放弃', async () => {
+    const controller = renderPage();
+    await screen.findByRole('heading', { name: '周报模板与生成方式' });
+    const setSettingsDirty = vi.spyOn(controller.api.window, 'setSettingsDirty');
+    const discardAndClose = vi.spyOn(controller.api.window, 'discardSettingsChangesAndClose');
+
+    fireEvent.change(screen.getByRole('textbox', { name: '本地 TXT 工作记录模板' }), {
+      target: { value: '工作记录\n{{tasks}}' },
+    });
+    await waitFor(() => expect(setSettingsDirty).toHaveBeenCalledWith(true));
+
+    act(() => controller.emitSettingsCloseRequested());
+    expect(await screen.findByRole('dialog', { name: '放弃未保存的修改？' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '继续编辑' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(discardAndClose).not.toHaveBeenCalled();
+
+    act(() => controller.emitSettingsCloseRequested());
+    fireEvent.click(screen.getByRole('button', { name: '放弃修改并关闭' }));
+    await waitFor(() => expect(discardAndClose).toHaveBeenCalledOnce());
+  });
+
+  it('测试连接只提交连接参数和临时密钥', async () => {
+    const controller = renderPage();
+    const testConnection = vi.spyOn(controller.api.reportSettings, 'testConnection');
+    await screen.findByRole('heading', { name: '周报模板与生成方式' });
+
+    fireEvent.click(screen.getByRole('radio', { name: '远程大模型' }));
+    fireEvent.change(screen.getByLabelText('API Key'), { target: { value: 'sk-connection-only' } });
+    fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
+
+    await waitFor(() => expect(testConnection).toHaveBeenCalledOnce());
+    const input = testConnection.mock.calls[0]?.[0];
+    expect(input).toEqual({
+      llm: expect.objectContaining({ baseUrl: 'https://api.deepseek.com' }),
+      apiKey: 'sk-connection-only',
+    });
+    expect(input).not.toHaveProperty('recordTemplate');
+    expect(input).not.toHaveProperty('remoteTemplate');
+    expect(input).not.toHaveProperty('prompt');
+    expect(input).not.toHaveProperty('mode');
   });
 
   it('shows a retry state when settings cannot be read', async () => {

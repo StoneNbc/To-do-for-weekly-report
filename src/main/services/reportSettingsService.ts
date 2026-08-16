@@ -1,5 +1,6 @@
 import path from 'node:path';
 import type {
+  LlmConnectionTestInput,
   LlmConnectionSettings,
   ReportContext,
   ReportSettingsPatch,
@@ -7,8 +8,13 @@ import type {
   WeeklyTask,
 } from '../../shared/domain';
 import { renderTemplateReport, validateReportTemplate } from '../agents/reportTemplate';
-import { normalizeLlmBaseUrl, getLlmCredentialOrigin } from '../agents/llmEndpointPolicy';
-import { OpenAICompatibleAgent } from '../agents/openAICompatibleAgent';
+import {
+  normalizeLlmBaseUrl,
+  getLlmCredentialOrigin,
+  isLoopbackLlmBaseUrl,
+} from '../agents/llmEndpointPolicy';
+import { LlmError } from '../agents/llmErrors';
+import { LlmHttpClient } from '../agents/llmHttpClient';
 import type { ConfigService } from './configService';
 import { llmConnectionSettingsSchema } from './configService';
 import { CredentialService, maskApiKey } from './credentialService';
@@ -20,6 +26,7 @@ export interface ReportSettingsServiceOptions {
   remoteTemplates: ReportTemplateService;
   prompts: ReportTemplateService;
   credentials: CredentialService;
+  llmClient?: Pick<LlmHttpClient, 'complete'>;
 }
 
 const SAMPLE_CONTEXT: ReportContext = {
@@ -32,6 +39,9 @@ const SAMPLE_TASKS: WeeklyTask[] = [
   { date: '2026-08-10', content: '完成项目阶段性方案' },
   { date: '2026-08-12', content: '同步本周进展与风险', time: '18:30' },
 ];
+const CONNECTION_TEST_MESSAGES = [
+  { role: 'user' as const, content: '连接测试：请只回复 OK' },
+] as const;
 
 /** 聚合模板、非敏感配置和安全凭据状态；Renderer 永远拿不到 API Key 明文。 */
 export class ReportSettingsService {
@@ -40,6 +50,7 @@ export class ReportSettingsService {
   readonly #remoteTemplates: ReportTemplateService;
   readonly #prompts: ReportTemplateService;
   readonly #credentials: CredentialService;
+  readonly #llmClient: Pick<LlmHttpClient, 'complete'>;
 
   constructor({
     config,
@@ -47,12 +58,14 @@ export class ReportSettingsService {
     remoteTemplates,
     prompts,
     credentials,
+    llmClient = new LlmHttpClient(),
   }: ReportSettingsServiceOptions) {
     this.#config = config;
     this.#recordTemplates = recordTemplates;
     this.#remoteTemplates = remoteTemplates;
     this.#prompts = prompts;
     this.#credentials = credentials;
+    this.#llmClient = llmClient;
   }
 
   async get(): Promise<ReportSettingsSnapshot> {
@@ -115,24 +128,21 @@ export class ReportSettingsService {
     return this.get();
   }
 
-  async testConnection(patch: ReportSettingsPatch): Promise<string> {
-    const settings = this.#normalizeSettings(patch.llm);
+  async testConnection(input: LlmConnectionTestInput): Promise<string> {
+    const settings = this.#normalizeSettings(input.llm);
     const origin = getLlmCredentialOrigin(settings.baseUrl, settings.allowInsecureHttp);
     const apiKey =
-      patch.apiKey === ''
+      input.apiKey === ''
         ? null
-        : patch.apiKey?.trim() || (await this.#credentials.get(origin))?.apiKey || null;
-    // 测试只使用内置示例，不把用户真实任务或正在编辑的模板发送到远程服务。
-    const agent = new OpenAICompatibleAgent({
-      settings,
-      recordTemplate: this.#recordTemplates.getDefault(),
-      remoteTemplate: this.#remoteTemplates.getDefault(),
-      prompt: this.#prompts.getDefault(),
+        : input.apiKey?.trim() || (await this.#credentials.get(origin))?.apiKey || null;
+    if (!apiKey && !isLoopbackLlmBaseUrl(settings.baseUrl)) {
+      throw new LlmError('CREDENTIAL_UNAVAILABLE', '请先配置远程模型的 API Key');
+    }
+    // 固定低随机性和极小输出上限；请求中不包含任何模板、提示词或任务数据。
+    await this.#llmClient.complete(
+      { ...settings, temperature: 0, maxTokens: 8 },
       apiKey,
-    });
-    await agent.generateReport(
-      [{ date: SAMPLE_CONTEXT.weekStart, content: '连接测试：仅需回复可用' }],
-      SAMPLE_CONTEXT,
+      CONNECTION_TEST_MESSAGES,
     );
     return '连接成功';
   }

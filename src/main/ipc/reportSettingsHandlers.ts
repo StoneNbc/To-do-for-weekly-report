@@ -4,7 +4,11 @@ import type { ReportSettingsSnapshot } from '../../shared/domain';
 import type { AppLogger } from '../logging/logger';
 import type { ReportSettingsService } from '../services/reportSettingsService';
 import { IPC } from './channels';
-import { reportSettingsPatchSchema, reportTextKindSchema } from './schemas';
+import {
+  llmConnectionTestInputSchema,
+  reportSettingsPatchSchema,
+  reportTextKindSchema,
+} from './schemas';
 import { toApiError } from './registerHandlers';
 
 export interface RegisterReportSettingsHandlersOptions {
@@ -42,7 +46,7 @@ export const registerReportSettingsHandlers = ({
     wrap<ReportSettingsSnapshot>(() => settings.save(reportSettingsPatchSchema.parse(input))),
   );
   ipcMain.handle(IPC.reportSettingsTestConnection, (_event, input: unknown) =>
-    wrap(() => settings.testConnection(reportSettingsPatchSchema.parse(input))),
+    wrap(() => settings.testConnection(llmConnectionTestInputSchema.parse(input))),
   );
   ipcMain.handle(IPC.reportSettingsConfirmConsent, () =>
     wrap(() => settings.confirmRemoteConsent()),

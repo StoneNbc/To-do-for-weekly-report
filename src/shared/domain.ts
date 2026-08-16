@@ -148,6 +148,13 @@ export interface ReportSettingsPatch {
   apiKey?: string | undefined;
 }
 
+/** 连接测试只需要网络配置和凭据，不允许携带模板、提示词或任务正文。 */
+export interface LlmConnectionTestInput {
+  llm: LlmConnectionSettings;
+  /** undefined 使用已保存凭据；空字符串表示本次测试不使用凭据。 */
+  apiKey?: string | undefined;
+}
+
 export interface WindowBounds {
   x: number;
   y: number;

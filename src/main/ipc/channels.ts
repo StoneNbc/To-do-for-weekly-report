@@ -22,6 +22,8 @@ export const IPC = {
   windowGenerateCurrentWeekReport: 'window:generate-current-week-report',
   windowShowNote: 'window:show-note',
   windowOpenSettings: 'window:open-settings',
+  windowSetSettingsDirty: 'window:set-settings-dirty',
+  windowDiscardSettingsChangesAndClose: 'window:discard-settings-changes-and-close',
   appOpenDataFolder: 'app:open-data-folder',
   appSetAlwaysOnTop: 'app:set-always-on-top',
   appQuit: 'app:quit',
@@ -41,4 +43,5 @@ export const IPC = {
   appearancePreviewed: 'event:appearance-previewed',
   dataChanged: 'event:data-changed',
   reportGenerationRequested: 'event:report-generation-requested',
+  settingsCloseRequested: 'event:settings-close-requested',
 } as const;

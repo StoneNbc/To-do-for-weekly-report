@@ -10,6 +10,7 @@ import type {
   SettingsSnapshot,
   NoteAppearance,
   ReportDraft,
+  LlmConnectionTestInput,
   ReportSettingsPatch,
   ReportSettingsSnapshot,
 } from '../shared/domain';
@@ -78,6 +79,8 @@ export interface ElectronAPI {
     generateCurrentWeekReport(): Promise<void>;
     showNote(): Promise<void>;
     openSettings(): Promise<void>;
+    setSettingsDirty(dirty: boolean): Promise<void>;
+    discardSettingsChangesAndClose(): Promise<void>;
   };
   app: {
     openDataFolder(): Promise<void>;
@@ -99,7 +102,7 @@ export interface ElectronAPI {
       kind: 'record-template' | 'remote-template' | 'prompt',
     ): Promise<ApiResult<string>>;
     save(input: ReportSettingsPatch): Promise<ApiResult<ReportSettingsSnapshot>>;
-    testConnection(input: ReportSettingsPatch): Promise<ApiResult<string>>;
+    testConnection(input: LlmConnectionTestInput): Promise<ApiResult<string>>;
     confirmConsent(): Promise<ApiResult<ReportSettingsSnapshot>>;
   };
   events: {
@@ -108,5 +111,6 @@ export interface ElectronAPI {
     onSettingsChanged(listener: (snapshot: SettingsSnapshot) => void): () => void;
     onAppearancePreviewed(listener: (appearance: NoteAppearance) => void): () => void;
     onReportGenerationRequested(listener: () => void): () => void;
+    onSettingsCloseRequested(listener: () => void): () => void;
   };
 }

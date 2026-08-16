@@ -80,6 +80,7 @@ export interface MockElectronAPIController {
   api: ElectronAPI;
   emit(event: DataChangedEvent): void;
   emitSettings(snapshot?: SettingsSnapshot): void;
+  emitSettingsCloseRequested(): void;
 }
 
 export function createMockElectronAPI(
@@ -109,6 +110,7 @@ export function createMockElectronAPI(
   const settingsListeners = new Set<(snapshot: SettingsSnapshot) => void>();
   const appearanceListeners = new Set<(appearance: NoteAppearance) => void>();
   const reportGenerationListeners = new Set<() => void>();
+  const settingsCloseListeners = new Set<() => void>();
 
   const nextTodaySnapshot = (tasks: TodaySnapshot['tasks']): TodaySnapshot => {
     const revision = `today-r-wave2-${revisionSequence++}`;
@@ -307,6 +309,8 @@ export function createMockElectronAPI(
       async generateCurrentWeekReport() {},
       async showNote() {},
       async openSettings() {},
+      async setSettingsDirty() {},
+      async discardSettingsChangesAndClose() {},
     },
     app: {
       async openDataFolder() {},
@@ -418,6 +422,10 @@ export function createMockElectronAPI(
         reportGenerationListeners.add(listener);
         return () => reportGenerationListeners.delete(listener);
       },
+      onSettingsCloseRequested(listener: () => void) {
+        settingsCloseListeners.add(listener);
+        return () => settingsCloseListeners.delete(listener);
+      },
     },
   } satisfies ElectronAPI;
 
@@ -429,6 +437,9 @@ export function createMockElectronAPI(
     emitSettings(snapshot = settings) {
       settings = clone(snapshot);
       settingsListeners.forEach((listener) => listener(clone(settings)));
+    },
+    emitSettingsCloseRequested() {
+      settingsCloseListeners.forEach((listener) => listener());
     },
   };
 }

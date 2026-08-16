@@ -43,6 +43,13 @@ export const reportSettingsPatchSchema = z.object({
   apiKey: z.string().max(8_192).optional(),
 });
 
+export const llmConnectionTestInputSchema = z
+  .object({
+    llm: llmConnectionSettingsSchema,
+    apiKey: z.string().max(8_192).optional(),
+  })
+  .strict();
+
 export const reportTextKindSchema = z.enum(['record-template', 'remote-template', 'prompt']);
 
 export const noteColorSchema = z
