@@ -4,6 +4,7 @@ import {
   isValidNoteOpacity,
   normalizeNoteColor,
 } from '../../shared/noteAppearance';
+import { llmConnectionSettingsSchema } from '../services/configService';
 
 // IPC 是安全边界：即使 Renderer 有 TypeScript 类型，Main 仍要验证运行时输入。
 export const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -23,6 +24,26 @@ export const isoWeekInputSchema = z.object({
   isoYear: z.number().int().min(1900).max(9999),
   isoWeek: z.number().int().min(1).max(53),
 });
+
+export const reportGenerationInputSchema = isoWeekInputSchema.extend({
+  requestId: z.string().uuid(),
+});
+
+export const reportDraftSaveSchema = z.object({
+  draftId: z.string().uuid(),
+  content: z.string().min(1).max(1_000_000),
+});
+
+export const reportSettingsPatchSchema = z.object({
+  mode: z.enum(['local-template', 'remote-llm']),
+  recordTemplate: z.string().min(1).max(20_000),
+  remoteTemplate: z.string().min(1).max(20_000),
+  prompt: z.string().min(1).max(20_000),
+  llm: llmConnectionSettingsSchema,
+  apiKey: z.string().max(8_192).optional(),
+});
+
+export const reportTextKindSchema = z.enum(['record-template', 'remote-template', 'prompt']);
 
 export const noteColorSchema = z
   .string()

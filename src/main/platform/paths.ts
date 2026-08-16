@@ -10,6 +10,10 @@ export interface DataPaths {
   todayFile: string;
   weeksDirectory: string;
   configFile: string;
+  reportTemplateFile: string;
+  remoteReportTemplateFile: string;
+  reportPromptFile: string;
+  secretsFile: string;
   logsDirectory: string;
   logFile: string;
 }
@@ -44,6 +48,10 @@ export const resolveDataPaths = ({
     todayFile: path.join(root, 'today.txt'),
     weeksDirectory: path.join(root, 'weeks'),
     configFile: path.join(root, 'config.json'),
+    reportTemplateFile: path.join(root, 'report-template.txt'),
+    remoteReportTemplateFile: path.join(root, 'remote-report-template.txt'),
+    reportPromptFile: path.join(root, 'report-prompt.txt'),
+    secretsFile: path.join(root, 'secrets.json'),
     logsDirectory: path.join(root, 'logs'),
     logFile: path.join(root, 'logs', 'app.log'),
   };

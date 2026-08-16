@@ -6,24 +6,63 @@ import {
   isValidLocalDate,
 } from '../../shared/dateUtils';
 import { isValidLocalTime } from '../../shared/validation';
+import { DEFAULT_REPORT_TEMPLATE } from '../../shared/constants';
 
-const RULE = '=======================';
+const SUPPORTED_VARIABLES = new Set(['iso_year', 'iso_week', 'week_start', 'week_end', 'tasks']);
+const TEMPLATE_VARIABLE = /\{\{([a-z_]+)\}\}/g;
+export const MAX_REPORT_TEMPLATE_LENGTH = 20_000;
+export const MAX_REPORT_PROMPT_LENGTH = 20_000;
 
 export const renderTemplateReport = (
   tasks: readonly WeeklyTask[],
   context: ReportContext,
+  template = DEFAULT_REPORT_TEMPLATE,
 ): string => {
   validateContext(context);
-  // 生成前先完整校验，使未来 Agent/调用方也不能输出跨周或多行任务。
+  validateReportTemplate(template);
+  const taskText = renderTaskList(tasks, context);
+  const values: Record<string, string> = {
+    iso_year: String(context.isoYear),
+    iso_week: String(context.isoWeek),
+    week_start: formatDisplayDate(context.weekStart),
+    week_end: formatDisplayDate(context.weekEnd),
+    tasks: taskText,
+  };
+
+  // 单次替换保证任务正文里的 {{...}} 只被当作普通文本，不能触发二次解析。
+  return template.replace(TEMPLATE_VARIABLE, (_match, name: string) => values[name] ?? '');
+};
+
+export const validateReportTemplate = (template: string): void => {
+  if (!template.trim()) throw new RangeError('周报模板不能为空');
+  if (template.length > MAX_REPORT_TEMPLATE_LENGTH) {
+    throw new RangeError(`周报模板不能超过 ${MAX_REPORT_TEMPLATE_LENGTH} 个字符`);
+  }
+  if (!template.includes('{{tasks}}')) throw new RangeError('周报模板必须包含 {{tasks}}');
+
+  for (const match of template.matchAll(TEMPLATE_VARIABLE)) {
+    const name = match[1];
+    if (name && !SUPPORTED_VARIABLES.has(name)) {
+      throw new RangeError(`周报模板包含未知变量：{{${name}}}`);
+    }
+  }
+
+  const withoutRecognizedTokens = template.replace(TEMPLATE_VARIABLE, '');
+  if (/\{\{|\}\}/.test(withoutRecognizedTokens)) {
+    throw new RangeError('周报模板包含格式无效或不完整的变量');
+  }
+};
+
+export const validateReportPrompt = (prompt: string): void => {
+  if (!prompt.trim()) throw new RangeError('远程周报提示词不能为空');
+  if (prompt.length > MAX_REPORT_PROMPT_LENGTH) {
+    throw new RangeError(`远程周报提示词不能超过 ${MAX_REPORT_PROMPT_LENGTH} 个字符`);
+  }
+};
+
+export const renderTaskList = (tasks: readonly WeeklyTask[], context: ReportContext): string => {
   const groups = groupTasks(tasks, context);
-  const lines = [
-    RULE,
-    `周报 | ${context.isoYear}年第${context.isoWeek}周`,
-    `${formatDisplayDate(context.weekStart)} - ${formatDisplayDate(context.weekEnd)}`,
-    RULE,
-    '',
-    '【本周完成工作】',
-  ];
+  const lines: string[] = [];
 
   if (groups.length === 0) {
     lines.push('（本周暂无已记录的完成事项）');
@@ -36,16 +75,6 @@ export const renderTemplateReport = (
       }
     });
   }
-
-  lines.push(
-    '',
-    '【工作总结】',
-    '（此处留白，供你手动填写）',
-    '',
-    '【下周计划】',
-    '（此处留白，供你手动填写）',
-    '',
-  );
   return lines.join('\n');
 };
 

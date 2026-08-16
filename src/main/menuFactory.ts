@@ -34,7 +34,7 @@ export class MenuFactory {
           }
         : { label: '显示便利贴', click: () => this.commands.showNote() },
       { label: '打开周记', click: () => this.commands.openWeekly() },
-      { label: '导出本周周报', click: () => this.commands.exportCurrentWeek() },
+      { label: '生成本周周报', click: () => this.commands.exportCurrentWeek() },
       { type: 'separator' },
       { label: '打开数据文件夹', click: () => this.commands.openDataDirectory() },
       {

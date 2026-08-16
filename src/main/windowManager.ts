@@ -38,6 +38,7 @@ export class WindowManager {
   #menuFactory: MenuFactory | null = null;
   #settingsCloseHandler: (() => void) | null = null;
   #boundsTimer: NodeJS.Timeout | null = null;
+  #pendingReportGeneration = false;
 
   constructor(options: WindowManagerOptions) {
     this.#options = options;
@@ -133,13 +134,23 @@ export class WindowManager {
     });
     this.#weeklyWindow = weeklyWindow;
     weeklyWindow.on('ready-to-show', () => {
-      if (!weeklyWindow.isDestroyed()) weeklyWindow.show();
+      if (!weeklyWindow.isDestroyed()) {
+        weeklyWindow.show();
+        this.#sendPendingReportGeneration(weeklyWindow);
+      }
     });
     weeklyWindow.on('closed', () => {
       if (this.#weeklyWindow === weeklyWindow) this.#weeklyWindow = null;
     });
     await this.#loadView(weeklyWindow, 'weekly');
     return weeklyWindow;
+  }
+
+  async requestCurrentWeekReportGeneration(): Promise<void> {
+    const existing = Boolean(this.#weeklyWindow && !this.#weeklyWindow.isDestroyed());
+    this.#pendingReportGeneration = true;
+    const window = await this.openWeekly();
+    if (existing) this.#sendPendingReportGeneration(window);
   }
 
   async openSettings(): Promise<BrowserWindow> {
@@ -151,8 +162,8 @@ export class WindowManager {
     }
 
     const settingsWindow = new BrowserWindow({
-      width: 560,
-      height: 640,
+      width: 720,
+      height: 760,
       minWidth: 480,
       minHeight: 440,
       title: '设置',
@@ -291,6 +302,12 @@ export class WindowManager {
     if (!noteWindow || noteWindow.isDestroyed()) return;
     noteWindow.setAlwaysOnTop(enabled, enabled ? 'floating' : 'normal');
     noteWindow.setVisibleOnAllWorkspaces(false);
+  }
+
+  #sendPendingReportGeneration(window: BrowserWindow): void {
+    if (!this.#pendingReportGeneration || window.isDestroyed()) return;
+    this.#pendingReportGeneration = false;
+    window.webContents.send(IPC.reportGenerationRequested);
   }
 
   #scheduleBoundsSave(window: BrowserWindow): void {

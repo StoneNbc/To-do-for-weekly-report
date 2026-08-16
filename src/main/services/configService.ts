@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import { DEFAULT_CONFIG } from '../../shared/constants';
-import type { AppConfig, WindowBounds } from '../../shared/domain';
+import type { AppConfig, LlmConnectionSettings, WindowBounds } from '../../shared/domain';
 import {
   isValidNoteColor,
   isValidNoteOpacity,
@@ -17,11 +17,25 @@ const windowBoundsSchema = z.object({
   height: z.number().int().positive().max(20_000),
 });
 
+export const llmConnectionSettingsSchema = z.object({
+  provider: z.enum(['deepseek', 'qwen', 'kimi', 'zhipu', 'local', 'custom']),
+  baseUrl: z.string().trim().min(1).max(2_048),
+  model: z.string().trim().min(1).max(256),
+  temperature: z.number().finite().min(0).max(2),
+  maxTokens: z.number().int().min(1).max(128_000),
+  timeoutMs: z.number().int().min(1_000).max(300_000),
+  allowInsecureHttp: z.boolean().default(false),
+});
+
 const knownConfigSchema = z.object({
-  schema_version: z.literal(1),
+  schema_version: z.literal(2),
   cleanup_time: z.literal('00:00'),
-  agent: z.string().trim().min(1).max(128),
+  agent: z.enum(['template', 'openai-compatible']),
   template_path: z.string().max(4_096).nullable(),
+  remote_template_path: z.string().max(4_096).nullable(),
+  report_prompt_path: z.string().max(4_096).nullable(),
+  llm: llmConnectionSettingsSchema,
+  remote_consent_confirmed: z.boolean(),
   always_on_top: z.boolean(),
   window_bounds: windowBoundsSchema.nullable(),
   completed_expanded: z.boolean(),
@@ -32,7 +46,17 @@ const knownConfigSchema = z.object({
 export type ConfigPatch = Partial<
   Pick<
     AppConfig,
-    'always_on_top' | 'window_bounds' | 'completed_expanded' | 'note_color' | 'note_opacity'
+    | 'agent'
+    | 'template_path'
+    | 'remote_template_path'
+    | 'report_prompt_path'
+    | 'llm'
+    | 'remote_consent_confirmed'
+    | 'always_on_top'
+    | 'window_bounds'
+    | 'completed_expanded'
+    | 'note_color'
+    | 'note_opacity'
   >
 >;
 
@@ -42,7 +66,7 @@ export interface ConfigServiceOptions {
   writeDelayMs?: number;
 }
 
-const cloneDefaults = (): AppConfig => ({ ...DEFAULT_CONFIG });
+const cloneDefaults = (): AppConfig => structuredClone(DEFAULT_CONFIG) as AppConfig;
 
 /** 按字段回退无效值，同时保留当前版本不认识的扩展字段。 */
 export const parseConfig = (input: unknown, onInvalid?: (field: string) => void): AppConfig => {
@@ -55,11 +79,27 @@ export const parseConfig = (input: unknown, onInvalid?: (field: string) => void)
   const defaults = cloneDefaults();
   const candidate: Record<string, unknown> = { ...source };
 
+  // v1 配置可直接迁移；新增字段按 v2 默认值补齐，写回后完成升级。
+  if (source.schema_version === 1) {
+    candidate.schema_version = 2;
+    onInvalid?.('schema_version');
+  }
+
   for (const key of Object.keys(DEFAULT_CONFIG) as Array<keyof typeof DEFAULT_CONFIG>) {
     const fieldSchema = knownConfigSchema.shape[key];
-    const result = fieldSchema.safeParse(source[key]);
+    const value = key === 'schema_version' && source.schema_version === 1 ? 2 : source[key];
+    const result = fieldSchema.safeParse(value);
     if (result.success) {
       candidate[key] = result.data;
+      if (
+        key === 'llm' &&
+        source.llm &&
+        typeof source.llm === 'object' &&
+        !Array.isArray(source.llm) &&
+        !('allowInsecureHttp' in source.llm)
+      ) {
+        onInvalid?.('llm.allowInsecureHttp');
+      }
     } else {
       candidate[key] = defaults[key];
       onInvalid?.(key);
@@ -217,6 +257,21 @@ export class ConfigService {
 
 const parsePatch = (patch: ConfigPatch): ConfigPatch => {
   const parsedPatch: ConfigPatch = {};
+  if ('agent' in patch) parsedPatch.agent = knownConfigSchema.shape.agent.parse(patch.agent);
+  if ('template_path' in patch)
+    parsedPatch.template_path = knownConfigSchema.shape.template_path.parse(patch.template_path);
+  if ('remote_template_path' in patch)
+    parsedPatch.remote_template_path = knownConfigSchema.shape.remote_template_path.parse(
+      patch.remote_template_path,
+    );
+  if ('report_prompt_path' in patch)
+    parsedPatch.report_prompt_path = knownConfigSchema.shape.report_prompt_path.parse(
+      patch.report_prompt_path,
+    );
+  if ('llm' in patch)
+    parsedPatch.llm = llmConnectionSettingsSchema.parse(patch.llm) as LlmConnectionSettings;
+  if ('remote_consent_confirmed' in patch)
+    parsedPatch.remote_consent_confirmed = z.boolean().parse(patch.remote_consent_confirmed);
   if ('always_on_top' in patch) parsedPatch.always_on_top = z.boolean().parse(patch.always_on_top);
   if ('completed_expanded' in patch)
     parsedPatch.completed_expanded = z.boolean().parse(patch.completed_expanded);

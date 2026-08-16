@@ -7,7 +7,7 @@ const silentLogger: AgentFactoryLogger = { warn: () => undefined };
 export class AgentFactory {
   constructor(private readonly logger: AgentFactoryLogger = silentLogger) {}
 
-  create(config: Pick<AppConfig, 'agent'>): ReportAgent {
+  create(config: { agent: string }): ReportAgent {
     // 未知配置安全回退到纯本地模板，不能因未来 Agent 缺失而阻断导出。
     switch (config.agent) {
       case 'template':
@@ -23,6 +23,6 @@ export class AgentFactory {
 }
 
 export const createReportAgent = (
-  config: Pick<AppConfig, 'agent'>,
+  config: Pick<AppConfig, 'agent'> | { agent: string },
   logger?: AgentFactoryLogger,
 ): ReportAgent => new AgentFactory(logger).create(config);

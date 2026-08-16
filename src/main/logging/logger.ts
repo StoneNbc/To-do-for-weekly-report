@@ -18,7 +18,8 @@ export interface LocalLoggerOptions {
   debug?: boolean;
 }
 
-const REDACTED_KEYS = /(?:content|body|report|task|text)/i;
+const REDACTED_KEYS =
+  /(?:api.?key|authorization|bearer|content|body|report|secret|task|text|token)/i;
 
 const sanitize = (value: unknown, key = '', depth = 0): unknown => {
   // 日志只记录诊断元数据，不落盘任务正文或周报内容。

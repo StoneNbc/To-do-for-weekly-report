@@ -6,6 +6,7 @@ import type {
   SettingsPatch,
   SettingsSnapshot,
   NoteAppearance,
+  ReportSettingsPatch,
 } from '../shared/domain';
 import type { ElectronAPI } from './apiTypes';
 
@@ -30,11 +31,16 @@ const api: ElectronAPI = {
   },
   report: {
     export: (input) => ipcRenderer.invoke(IPC.reportExport, input),
+    generate: (input) => ipcRenderer.invoke(IPC.reportGenerate, input),
+    cancel: (requestId) => ipcRenderer.invoke(IPC.reportCancel, requestId),
+    saveDraft: (input) => ipcRenderer.invoke(IPC.reportSaveDraft, input),
+    discardDraft: (draftId) => ipcRenderer.invoke(IPC.reportDiscardDraft, draftId),
     openLast: () => ipcRenderer.invoke(IPC.reportOpenLast),
     revealLast: () => ipcRenderer.invoke(IPC.reportRevealLast),
   },
   window: {
     openWeekly: () => ipcRenderer.invoke(IPC.windowOpenWeekly),
+    generateCurrentWeekReport: () => ipcRenderer.invoke(IPC.windowGenerateCurrentWeekReport),
     showNote: () => ipcRenderer.invoke(IPC.windowShowNote),
     openSettings: () => ipcRenderer.invoke(IPC.windowOpenSettings),
   },
@@ -51,6 +57,15 @@ const api: ElectronAPI = {
     resetAppearance: () => ipcRenderer.invoke(IPC.settingsResetAppearance),
     openLogsFolder: () => ipcRenderer.invoke(IPC.settingsOpenLogsFolder),
     copyDataPath: () => ipcRenderer.invoke(IPC.settingsCopyDataPath),
+  },
+  reportSettings: {
+    get: () => ipcRenderer.invoke(IPC.reportSettingsGet),
+    preview: (template) => ipcRenderer.invoke(IPC.reportSettingsPreview, template),
+    getDefaultText: (kind) => ipcRenderer.invoke(IPC.reportSettingsGetDefaultTemplate, kind),
+    save: (input: ReportSettingsPatch) => ipcRenderer.invoke(IPC.reportSettingsSave, input),
+    testConnection: (input: ReportSettingsPatch) =>
+      ipcRenderer.invoke(IPC.reportSettingsTestConnection, input),
+    confirmConsent: () => ipcRenderer.invoke(IPC.reportSettingsConfirmConsent),
   },
   events: {
     onDataChanged: (listener) => {
@@ -71,6 +86,11 @@ const api: ElectronAPI = {
         listener(payload);
       ipcRenderer.on(IPC.appearancePreviewed, handler);
       return () => ipcRenderer.removeListener(IPC.appearancePreviewed, handler);
+    },
+    onReportGenerationRequested: (listener) => {
+      const handler = () => listener();
+      ipcRenderer.on(IPC.reportGenerationRequested, handler);
+      return () => ipcRenderer.removeListener(IPC.reportGenerationRequested, handler);
     },
   },
 };

@@ -1,9 +1,23 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "cleanup_time": "00:00",
   "agent": "template",
   "template_path": null,
+  "remote_template_path": null,
+  "report_prompt_path": null,
+  "llm": {
+    "provider": "deepseek",
+    "baseUrl": "https://api.deepseek.com",
+    "model": "deepseek-v4-flash",
+    "temperature": 0.3,
+    "maxTokens": 2000,
+    "timeoutMs": 60000,
+    "allowInsecureHttp": false
+  },
+  "remote_consent_confirmed": false,
   "always_on_top": true,
   "window_bounds": null,
-  "completed_expanded": false
+  "completed_expanded": false,
+  "note_color": "#FFF8E7",
+  "note_opacity": 1
 }

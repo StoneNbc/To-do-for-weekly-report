@@ -9,6 +9,9 @@ import type {
   SettingsPatch,
   SettingsSnapshot,
   NoteAppearance,
+  ReportDraft,
+  ReportSettingsPatch,
+  ReportSettingsSnapshot,
 } from '../shared/domain';
 import type { ApiResult, ExportReportResult } from '../shared/results';
 
@@ -63,11 +66,16 @@ export interface ElectronAPI {
   };
   report: {
     export(input: IsoWeekInput): Promise<ExportReportResult>;
+    generate(input: IsoWeekInput & { requestId: string }): Promise<ApiResult<ReportDraft>>;
+    cancel(requestId: string): Promise<ApiResult<void>>;
+    saveDraft(input: { draftId: string; content: string }): Promise<ExportReportResult>;
+    discardDraft(draftId: string): Promise<ApiResult<void>>;
     openLast(): Promise<ApiResult<void>>;
     revealLast(): Promise<ApiResult<void>>;
   };
   window: {
     openWeekly(): Promise<void>;
+    generateCurrentWeekReport(): Promise<void>;
     showNote(): Promise<void>;
     openSettings(): Promise<void>;
   };
@@ -84,10 +92,21 @@ export interface ElectronAPI {
     openLogsFolder(): Promise<ApiResult<void>>;
     copyDataPath(): Promise<ApiResult<void>>;
   };
+  reportSettings: {
+    get(): Promise<ApiResult<ReportSettingsSnapshot>>;
+    preview(template: string): Promise<ApiResult<string>>;
+    getDefaultText(
+      kind: 'record-template' | 'remote-template' | 'prompt',
+    ): Promise<ApiResult<string>>;
+    save(input: ReportSettingsPatch): Promise<ApiResult<ReportSettingsSnapshot>>;
+    testConnection(input: ReportSettingsPatch): Promise<ApiResult<string>>;
+    confirmConsent(): Promise<ApiResult<ReportSettingsSnapshot>>;
+  };
   events: {
     /** 返回退订函数，React effect 卸载时必须调用，防止重复监听。 */
     onDataChanged(listener: (event: DataChangedEvent) => void): () => void;
     onSettingsChanged(listener: (snapshot: SettingsSnapshot) => void): () => void;
     onAppearancePreviewed(listener: (appearance: NoteAppearance) => void): () => void;
+    onReportGenerationRequested(listener: () => void): () => void;
   };
 }

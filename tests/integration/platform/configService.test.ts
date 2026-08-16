@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppLogger } from '../../../src/main/logging/logger';
 import { ConfigService } from '../../../src/main/services/configService';
+import { DEFAULT_CONFIG } from '../../../src/shared/constants';
 
 const directories: string[] = [];
 
@@ -39,7 +40,7 @@ describe('ConfigService', () => {
     expect(config.always_on_top).toBe(true);
     expect(config.note_color).toBe('#FFF8E7');
     expect(config.note_opacity).toBe(1);
-    expect(persisted.schema_version).toBe(1);
+    expect(persisted.schema_version).toBe(2);
   });
 
   it('keeps unknown fields while invalid known fields fall back', async () => {
@@ -67,7 +68,7 @@ describe('ConfigService', () => {
 
     expect(config.cleanup_time).toBe('00:00');
     expect(config.always_on_top).toBe(true);
-    expect(config.agent).toBe('custom-local');
+    expect(config.agent).toBe('template');
     expect(config.note_color).toBe('#FFF8E7');
     expect(config.note_opacity).toBe(1);
     expect(config.future_setting).toEqual({ enabled: true });
@@ -91,6 +92,24 @@ describe('ConfigService', () => {
     expect(persisted.note_opacity).toBe(0.8);
     expect(persisted.completed_expanded).toBe(true);
     expect(persisted.window_bounds).toEqual({ x: 12, y: 24, width: 340, height: 420 });
+  });
+
+  it('adds the insecure HTTP flag without losing an existing v2 LLM configuration', async () => {
+    const configFile = await makeConfigPath();
+    const legacyLlm = { ...DEFAULT_CONFIG.llm } as Record<string, unknown>;
+    delete legacyLlm.allowInsecureHttp;
+    legacyLlm.model = 'self-hosted-model';
+    await writeFile(configFile, JSON.stringify({ ...DEFAULT_CONFIG, llm: legacyLlm }), 'utf8');
+    const service = new ConfigService({ configFile, logger: makeLogger(), writeDelayMs: 1 });
+
+    const config = await service.initialize();
+    const persisted = JSON.parse(await readFile(configFile, 'utf8')) as {
+      llm: { allowInsecureHttp: boolean };
+    };
+
+    expect(config.llm.model).toBe('self-hosted-model');
+    expect(config.llm.allowInsecureHttp).toBe(false);
+    expect(persisted.llm.allowInsecureHttp).toBe(false);
   });
 
   it('coalesces window state changes and flushes the latest value', async () => {

@@ -89,11 +89,63 @@ export interface ReportContext {
   weekEnd: IsoDate;
 }
 
+export type ReportGenerationMode = 'local-template' | 'remote-llm';
+export type LlmProviderId = 'deepseek' | 'qwen' | 'kimi' | 'zhipu' | 'local' | 'custom';
+
+export interface LlmConnectionSettings {
+  provider: LlmProviderId;
+  baseUrl: string;
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  timeoutMs: number;
+  /** 明确允许向非回环地址使用明文 HTTP；默认 false。 */
+  allowInsecureHttp: boolean;
+}
+
+export interface ReportGenerationOptions {
+  signal?: AbortSignal | undefined;
+  /** 作为远程周报“下周计划”的候选来源；本地模板 Agent 忽略此字段。 */
+  pendingTasks?: string[] | undefined;
+}
+
 /** ReportAgent 的稳定扩展点；具体 Agent 不应负责文件选择或磁盘写入。 */
 export interface ReportAgent {
   readonly name: string;
   isAvailable(): Promise<boolean>;
-  generateReport(tasks: WeeklyTask[], context: ReportContext): Promise<string>;
+  generateReport(
+    tasks: WeeklyTask[],
+    context: ReportContext,
+    options?: ReportGenerationOptions,
+  ): Promise<string>;
+}
+
+export interface ReportDraft {
+  id: string;
+  content: string;
+  mode: ReportGenerationMode;
+  createdAt: string;
+}
+
+export interface ReportSettingsSnapshot {
+  mode: ReportGenerationMode;
+  recordTemplate: string;
+  remoteTemplate: string;
+  prompt: string;
+  llm: LlmConnectionSettings;
+  hasApiKey: boolean;
+  apiKeyMask: string | null;
+  remoteConsentConfirmed: boolean;
+}
+
+export interface ReportSettingsPatch {
+  mode: ReportGenerationMode;
+  recordTemplate: string;
+  remoteTemplate: string;
+  prompt: string;
+  llm: LlmConnectionSettings;
+  /** undefined 表示保留原凭据，空字符串表示删除，其他值表示替换。 */
+  apiKey?: string | undefined;
 }
 
 export interface WindowBounds {
@@ -104,10 +156,14 @@ export interface WindowBounds {
 }
 
 export interface AppConfig {
-  schema_version: 1;
+  schema_version: 2;
   cleanup_time: '00:00';
-  agent: string;
+  agent: 'template' | 'openai-compatible';
   template_path: string | null;
+  remote_template_path: string | null;
+  report_prompt_path: string | null;
+  llm: LlmConnectionSettings;
+  remote_consent_confirmed: boolean;
   always_on_top: boolean;
   window_bounds: WindowBounds | null;
   completed_expanded: boolean;

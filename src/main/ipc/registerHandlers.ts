@@ -53,6 +53,14 @@ const publicErrorCodes = new Set<ApiErrorCode>([
   'NOT_FOUND',
   'INVALID_FILE',
   'IO_ERROR',
+  'CREDENTIAL_UNAVAILABLE',
+  'NETWORK_POLICY_BLOCKED',
+  'REMOTE_AUTH_FAILED',
+  'REMOTE_RATE_LIMITED',
+  'REMOTE_TIMEOUT',
+  'REMOTE_RESPONSE_INVALID',
+  'REMOTE_REQUEST_FAILED',
+  'CANCELLED',
 ]);
 
 export const toApiError = (error: unknown, logger: AppLogger): ApiResult<never> => {

@@ -25,7 +25,7 @@ describe('WeeklyPage', () => {
     expect(screen.getAllByText('重复记录')).toHaveLength(2);
     expect(screen.getByText('3', { selector: 'strong' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '查看上一周' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: '一键导出周报 TXT' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '生成周报草稿' })).toBeEnabled();
   });
 
   it('空周显示空状态', async () => {
@@ -36,8 +36,9 @@ describe('WeeklyPage', () => {
 
   it('导出取消是正常状态，不展示失败', async () => {
     renderPage('export-cancelled');
-    const button = await screen.findByRole('button', { name: '一键导出周报 TXT' });
+    const button = await screen.findByRole('button', { name: '生成周报草稿' });
     fireEvent.click(button);
+    fireEvent.click(await screen.findByRole('button', { name: '选择位置并保存' }));
 
     expect(await screen.findByLabelText('导出已取消')).toHaveTextContent('未创建任何文件');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -80,15 +81,23 @@ describe('WeeklyPage', () => {
 
   it('导出成功后可打开文件、定位文件并关闭结果', async () => {
     const controller = renderPage();
-    const exportReport = vi.spyOn(controller.api.report, 'export');
+    const generateReport = vi.spyOn(controller.api.report, 'generate');
+    const saveDraft = vi.spyOn(controller.api.report, 'saveDraft');
     const openLast = vi.spyOn(controller.api.report, 'openLast');
     const revealLast = vi.spyOn(controller.api.report, 'revealLast');
-    const button = await screen.findByRole('button', { name: '一键导出周报 TXT' });
+    const button = await screen.findByRole('button', { name: '生成周报草稿' });
     fireEvent.click(button);
+    expect(await screen.findByLabelText('周报草稿内容')).toHaveValue('模拟生成的周报内容');
+    fireEvent.click(screen.getByRole('button', { name: '选择位置并保存' }));
 
     expect(await screen.findByLabelText('导出成功')).toHaveTextContent('周报-2026年第33周.txt');
     expect(screen.getByLabelText('导出成功')).toHaveTextContent('文件不会自动打开');
-    expect(exportReport).toHaveBeenCalledWith(expect.objectContaining({ isoYear: 2026, isoWeek: 33 }));
+    expect(generateReport).toHaveBeenCalledWith(
+      expect.objectContaining({ isoYear: 2026, isoWeek: 33 }),
+    );
+    expect(saveDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ content: '模拟生成的周报内容' }),
+    );
     fireEvent.click(screen.getByRole('button', { name: '打开文件' }));
     fireEvent.click(screen.getByRole('button', { name: '打开所在文件夹' }));
     expect(openLast).toHaveBeenCalledOnce();
@@ -105,12 +114,13 @@ describe('WeeklyPage', () => {
 
   it('导出 failed 显示明确错误但不出现打开操作', async () => {
     const controller = renderPage();
-    controller.api.report.export = vi.fn().mockResolvedValue({
+    controller.api.report.saveDraft = vi.fn().mockResolvedValue({
       status: 'failed',
       message: '保存位置不可写',
     });
-    const button = await screen.findByRole('button', { name: '一键导出周报 TXT' });
+    const button = await screen.findByRole('button', { name: '生成周报草稿' });
     fireEvent.click(button);
+    fireEvent.click(await screen.findByRole('button', { name: '选择位置并保存' }));
 
     expect(await screen.findByLabelText('导出失败')).toHaveTextContent('保存位置不可写');
     expect(screen.queryByRole('button', { name: '打开文件' })).not.toBeInTheDocument();
@@ -126,6 +136,6 @@ describe('WeeklyPage', () => {
     expect(container.firstElementChild).toHaveClass('min-w-0', 'overflow-x-hidden');
     expect(screen.getByRole('button', { name: '查看上一周' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '查看下一周' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '一键导出周报 TXT' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '生成周报草稿' })).toBeInTheDocument();
   });
 });

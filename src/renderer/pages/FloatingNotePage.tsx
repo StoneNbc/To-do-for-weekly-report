@@ -15,11 +15,10 @@ import type {
   TodayTaskView,
   SettingsSnapshot,
 } from '../../shared/domain';
-import type { ApiResult, ExportReportResult } from '../../shared/results';
+import type { ApiResult } from '../../shared/results';
 import { addLocalDays, getIsoWeekInfo, getLocalDate } from '../../shared/dateUtils';
 import { AddTaskInput } from '../components/AddTaskInput';
 import { CompletedSection } from '../components/CompletedSection';
-import { ExportResultToast } from '../components/ExportResultToast';
 import { HistoricalInput } from '../components/HistoricalInput';
 import { StatusBanner } from '../components/StatusBanner';
 import { TaskItem } from '../components/TaskItem';
@@ -47,7 +46,6 @@ export function FloatingNotePage() {
     noteOpacity: DEFAULT_NOTE_OPACITY,
   });
   const [exporting, setExporting] = useState(false);
-  const [exportResult, setExportResult] = useState<ExportReportResult | null>(null);
   const requestTokenRef = useRef(0);
   const watcherEchoRef = useRef<{ scope: 'today' | 'week'; expiresAt: number } | null>(null);
 
@@ -230,15 +228,21 @@ export function FloatingNotePage() {
 
   const exportCurrentWeek = useCallback(async () => {
     setMenuOpen(false);
-    setExportResult(null);
     setExporting(true);
-    const week = getIsoWeekInfo(today);
     try {
-      setExportResult(await api.report.export({ isoYear: week.isoYear, isoWeek: week.isoWeek }));
+      await api.window.generateCurrentWeekReport();
+    } catch (cause) {
+      dispatch({
+        type: 'mutation-failure',
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: cause instanceof Error ? cause.message : '无法打开周报生成窗口，请稍后重试',
+        },
+      });
     } finally {
       setExporting(false);
     }
-  }, [api, today]);
+  }, [api]);
 
   const menu = useMemo(
     () =>
@@ -348,18 +352,6 @@ export function FloatingNotePage() {
       />
       {menu}
       <StatusBanner error={state.error} notice={state.notice} onRetry={refresh} />
-
-      {exportResult ? (
-        <div className="no-drag absolute inset-x-3 top-[3.35rem] z-10 max-h-[calc(100vh-4.25rem)] overflow-y-auto">
-          <ExportResultToast
-            compact
-            onDismiss={() => setExportResult(null)}
-            onOpen={() => void api.report.openLast()}
-            onReveal={() => void api.report.revealLast()}
-            result={exportResult}
-          />
-        </div>
-      ) : null}
 
       <section className="min-h-0 flex-1 overflow-y-auto py-2" aria-busy={state.loading || saving}>
         {state.loading ? (

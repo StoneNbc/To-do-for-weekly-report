@@ -21,7 +21,7 @@ describe('AppRouter ElectronAPI contract', () => {
     window.history.replaceState({}, '', '/?view=weekly');
     window.electronAPI = createMockElectronAPI().api;
     const { unmount } = render(<AppRouter />);
-    expect(await screen.findByRole('button', { name: '一键导出周报 TXT' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '生成周报草稿' })).toBeInTheDocument();
     unmount();
 
     window.history.replaceState({}, '', '/?view=settings');

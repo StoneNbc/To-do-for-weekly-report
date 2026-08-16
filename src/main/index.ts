@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, powerMonitor, session, shell } from 'electron';
+import { app, dialog, ipcMain, powerMonitor, safeStorage, session, shell } from 'electron';
 import { mkdir } from 'node:fs/promises';
 import { AppLifecycle } from './appLifecycle';
 import { IPC } from './ipc/channels';
@@ -17,13 +17,21 @@ import { FileWatcherService, getCurrentWeekPath } from './services/fileWatcher';
 import { ArchiveScheduler } from './services/scheduler';
 import { registerBusinessHandlers } from './ipc/registerHandlers';
 import { registerReportHandlers } from './ipc/reportHandlers';
-import { createReportAgent } from './agents/agentFactory';
+import { TemplateAgent } from './agents/templateAgent';
+import { OpenAICompatibleAgent } from './agents/openAICompatibleAgent';
+import { getLlmCredentialOrigin } from './agents/llmEndpointPolicy';
 import { ReportService } from './services/reportService';
 import { TrayManager } from './trayManager';
 import { getDefaultWindowPaths, WindowManager } from './windowManager';
 import { installLocalOnlyNetworkPolicy } from './platform/networkPolicy';
 import { SettingsService } from './services/settingsService';
 import { registerSettingsHandlers } from './ipc/settingsHandlers';
+import { CredentialService } from './services/credentialService';
+import { ReportTemplateService } from './services/reportTemplateService';
+import { ReportSettingsService } from './services/reportSettingsService';
+import { registerReportSettingsHandlers } from './ipc/reportSettingsHandlers';
+import { DEFAULT_REMOTE_REPORT_TEMPLATE, DEFAULT_REPORT_PROMPT } from '../shared/constants';
+import { validateReportPrompt } from './agents/reportTemplate';
 
 // Main Process 组合根：这里只负责实例化和接线，文本规则与业务流程留在各自 Service。
 const dataPaths = resolveDataPaths({ app });
@@ -66,7 +74,7 @@ if (lifecycle.acquireSingleInstance()) {
         mkdir(dataPaths.logsDirectory, { recursive: true }),
       ]);
       await config.initialize();
-      // 生产环境不允许网络；开发环境仅放行当前 Vite origin 和热更新 WebSocket。
+      // Renderer 始终禁止业务网络；远程模型请求只允许由 Main 的受控客户端发起。
       installLocalOnlyNetworkPolicy(
         session.defaultSession,
         logger,
@@ -78,6 +86,24 @@ if (lifecycle.acquireSingleInstance()) {
       const archiveService = new ArchiveService(todayRepository, weekRepository);
       const taskService = new TaskService(todayRepository, archiveService);
       const weeklyService = new WeeklyService(weekRepository, todayRepository);
+      const recordTemplates = new ReportTemplateService(dataPaths.reportTemplateFile);
+      const remoteTemplates = new ReportTemplateService(
+        dataPaths.remoteReportTemplateFile,
+        DEFAULT_REMOTE_REPORT_TEMPLATE,
+      );
+      const prompts = new ReportTemplateService(
+        dataPaths.reportPromptFile,
+        DEFAULT_REPORT_PROMPT,
+        validateReportPrompt,
+      );
+      const credentials = new CredentialService(dataPaths.secretsFile, safeStorage, logger);
+      const reportSettings = new ReportSettingsService({
+        config,
+        recordTemplates,
+        remoteTemplates,
+        prompts,
+        credentials,
+      });
 
       windowManager = new WindowManager({
         config,
@@ -111,7 +137,30 @@ if (lifecycle.acquireSingleInstance()) {
       scheduler = new ArchiveScheduler({ archive: archiveService, powerMonitor, logger });
       reportService = new ReportService({
         weeklyService,
-        agentProvider: { getAgent: () => createReportAgent(config.get(), logger) },
+        pendingTaskSource: taskService,
+        agentProvider: {
+          getAgent: async () => {
+            const current = config.get();
+            const recordTemplate = await recordTemplates.read(current.template_path);
+            if (current.agent === 'template') return new TemplateAgent(recordTemplate);
+            const [remoteTemplate, prompt] = await Promise.all([
+              remoteTemplates.read(current.remote_template_path),
+              prompts.read(current.report_prompt_path),
+            ]);
+            const origin = getLlmCredentialOrigin(
+              current.llm.baseUrl,
+              current.llm.allowInsecureHttp,
+            );
+            const credential = await credentials.get(origin);
+            return new OpenAICompatibleAgent({
+              settings: current.llm,
+              recordTemplate,
+              remoteTemplate,
+              prompt,
+              apiKey: credential?.apiKey ?? null,
+            });
+          },
+        },
         dialog: {
           showSaveDialog: (window, options) =>
             window ? dialog.showSaveDialog(window, options) : dialog.showSaveDialog(options),
@@ -119,6 +168,7 @@ if (lifecycle.acquireSingleInstance()) {
         shell,
         logger,
         getDialogWindow: () => windowManager?.getActiveWindow(),
+        isRemoteConsentConfirmed: () => config.get().remote_consent_confirmed,
       });
 
       const commands: DesktopCommands = {
@@ -127,7 +177,7 @@ if (lifecycle.acquireSingleInstance()) {
         openWeekly: () => void windowManager?.openWeekly(),
         openSettings: () => void windowManager?.openSettings(),
         exportCurrentWeek: () => {
-          void reportService?.exportCurrentWeekFromMenu();
+          void windowManager?.requestCurrentWeekReportGeneration();
         },
         openDataDirectory: () =>
           void shellActions
@@ -168,6 +218,7 @@ if (lifecycle.acquireSingleInstance()) {
       });
       registerReportHandlers({ ipcMain, reportService, logger });
       registerSettingsHandlers({ ipcMain, settings: settingsService, shellActions, logger });
+      registerReportSettingsHandlers({ ipcMain, settings: reportSettings, logger });
       // Scheduler 先执行启动补偿，再启动 Watcher；这样补偿写入不会被误判为外部编辑。
       await scheduler.start();
       await fileWatcher.start();
@@ -191,6 +242,9 @@ const registerPlatformHandlers = (
   ipcMain.handle(IPC.healthCheck, () => ({ status: 'ok' as const }));
   ipcMain.handle(IPC.windowOpenWeekly, async () => {
     await windows.openWeekly();
+  });
+  ipcMain.handle(IPC.windowGenerateCurrentWeekReport, async () => {
+    await windows.requestCurrentWeekReportGeneration();
   });
   ipcMain.handle(IPC.windowShowNote, () => windows.showFloatingNote());
   ipcMain.handle(IPC.windowOpenSettings, async () => {

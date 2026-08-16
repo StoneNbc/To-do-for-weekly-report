@@ -5,10 +5,19 @@ import type {
   SettingsPatch,
   SettingsSnapshot,
   NoteAppearance,
+  ReportDraft,
+  ReportSettingsPatch,
+  ReportSettingsSnapshot,
   TodaySnapshot,
   WeeklySnapshot,
 } from '../../shared/domain';
 import type { ApiResult, ExportReportResult } from '../../shared/results';
+import {
+  DEFAULT_LLM_SETTINGS,
+  DEFAULT_REMOTE_REPORT_TEMPLATE,
+  DEFAULT_REPORT_PROMPT,
+  DEFAULT_REPORT_TEMPLATE,
+} from '../../shared/constants';
 
 // 仅供 Renderer 测试显式注入；生产入口绝不能在 Preload 缺失时自动回退到该 Mock。
 export type MockScenario =
@@ -85,10 +94,21 @@ export function createMockElectronAPI(
     completedExpanded: false,
     dataDirectory: '/本机/悬浮便利贴/data',
   };
+  let reportSettings: ReportSettingsSnapshot = {
+    mode: 'local-template',
+    recordTemplate: DEFAULT_REPORT_TEMPLATE,
+    remoteTemplate: DEFAULT_REMOTE_REPORT_TEMPLATE,
+    prompt: DEFAULT_REPORT_PROMPT,
+    llm: clone(DEFAULT_LLM_SETTINGS),
+    hasApiKey: false,
+    apiKeyMask: null,
+    remoteConsentConfirmed: false,
+  };
   let revisionSequence = 1;
   const listeners = new Set<(event: DataChangedEvent) => void>();
   const settingsListeners = new Set<(snapshot: SettingsSnapshot) => void>();
   const appearanceListeners = new Set<(appearance: NoteAppearance) => void>();
+  const reportGenerationListeners = new Set<() => void>();
 
   const nextTodaySnapshot = (tasks: TodaySnapshot['tasks']): TodaySnapshot => {
     const revision = `today-r-wave2-${revisionSequence++}`;
@@ -261,9 +281,30 @@ export function createMockElectronAPI(
       async revealLast() {
         return { ok: true as const, data: undefined };
       },
+      async generate(): Promise<ApiResult<ReportDraft>> {
+        return {
+          ok: true,
+          data: {
+            id: 'a7bfe42a-1245-4bb9-b854-4ebf8b8c6b3c',
+            content: '模拟生成的周报内容',
+            mode: reportSettings.mode,
+            createdAt: new Date().toISOString(),
+          },
+        };
+      },
+      async cancel() {
+        return { ok: true as const, data: undefined };
+      },
+      async saveDraft(): Promise<ExportReportResult> {
+        return this.export({ isoYear: 2026, isoWeek: 33 });
+      },
+      async discardDraft() {
+        return { ok: true as const, data: undefined };
+      },
     },
     window: {
       async openWeekly() {},
+      async generateCurrentWeekReport() {},
       async showNote() {},
       async openSettings() {},
     },
@@ -317,6 +358,49 @@ export function createMockElectronAPI(
         return { ok: true as const, data: undefined };
       },
     },
+    reportSettings: {
+      async get() {
+        return { ok: true as const, data: clone(reportSettings) };
+      },
+      async preview(template: string) {
+        if (!template.includes('{{tasks}}')) {
+          return {
+            ok: false as const,
+            error: { code: 'INVALID_INPUT' as const, message: '模板必须包含 {{tasks}}' },
+          };
+        }
+        return { ok: true as const, data: template.replace('{{tasks}}', '- 示例任务') };
+      },
+      async getDefaultText(kind) {
+        const data =
+          kind === 'remote-template'
+            ? DEFAULT_REMOTE_REPORT_TEMPLATE
+            : kind === 'prompt'
+              ? DEFAULT_REPORT_PROMPT
+              : DEFAULT_REPORT_TEMPLATE;
+        return { ok: true as const, data };
+      },
+      async save(input: ReportSettingsPatch) {
+        reportSettings = {
+          ...reportSettings,
+          mode: input.mode,
+          recordTemplate: input.recordTemplate,
+          remoteTemplate: input.remoteTemplate,
+          prompt: input.prompt,
+          llm: clone(input.llm),
+          hasApiKey: input.apiKey ? true : reportSettings.hasApiKey,
+          apiKeyMask: input.apiKey ? 'sk-••••mock' : reportSettings.apiKeyMask,
+        };
+        return { ok: true as const, data: clone(reportSettings) };
+      },
+      async testConnection() {
+        return { ok: true as const, data: '连接成功' };
+      },
+      async confirmConsent() {
+        reportSettings = { ...reportSettings, remoteConsentConfirmed: true };
+        return { ok: true as const, data: clone(reportSettings) };
+      },
+    },
     events: {
       onDataChanged(listener: (event: DataChangedEvent) => void) {
         listeners.add(listener);
@@ -329,6 +413,10 @@ export function createMockElectronAPI(
       onAppearancePreviewed(listener: (appearance: NoteAppearance) => void) {
         appearanceListeners.add(listener);
         return () => appearanceListeners.delete(listener);
+      },
+      onReportGenerationRequested(listener: () => void) {
+        reportGenerationListeners.add(listener);
+        return () => reportGenerationListeners.delete(listener);
       },
     },
   } satisfies ElectronAPI;

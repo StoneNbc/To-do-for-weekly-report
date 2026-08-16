@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
-import type { SettingsPatch, SettingsSnapshot } from '../../shared/domain';
+import type {
+  LlmProviderId,
+  ReportSettingsPatch,
+  ReportSettingsSnapshot,
+  SettingsPatch,
+  SettingsSnapshot,
+} from '../../shared/domain';
 import type { ApiResult } from '../../shared/results';
 import { DEFAULT_NOTE_COLOR, DEFAULT_NOTE_OPACITY } from '../../shared/constants';
+import { PROVIDER_PRESETS } from '../../shared/providerPresets';
 import { useElectronAPI } from '../hooks/useElectronAPI';
 
 const PRESET_COLORS = [
@@ -286,6 +293,8 @@ export function SettingsPage() {
           />
         </SettingsCard>
 
+        <ReportGenerationSettings />
+
         <SettingsCard title="数据与诊断" description="任务和配置始终保存在你的电脑上。">
           <p className="break-all rounded-xl bg-stone-100 px-3 py-2 font-mono text-xs text-stone-600">
             {settings.dataDirectory}
@@ -320,13 +329,451 @@ export function SettingsPage() {
         </SettingsCard>
 
         <p className="pb-3 text-center text-xs text-stone-400">
-          设置仅保存在本机，不会上传。
+          设置与 API Key 保存在本机；仅在你选择远程生成时发送当前周内容。
           {saving ? ' 正在保存…' : ''}
         </p>
       </div>
     </main>
   );
 }
+
+function ReportGenerationSettings() {
+  const api = useElectronAPI();
+  const [saved, setSaved] = useState<ReportSettingsSnapshot | null>(null);
+  const [draft, setDraft] = useState<ReportSettingsPatch | null>(null);
+  const [recordPreview, setRecordPreview] = useState('');
+  const [remotePreview, setRemotePreview] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [clearApiKey, setClearApiKey] = useState(false);
+  const [busy, setBusy] = useState<'save' | 'test' | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const recordTemplateDraft = draft?.recordTemplate;
+  const remoteTemplateDraft = draft?.remoteTemplate;
+
+  useEffect(() => {
+    void api.reportSettings.get().then((result) => {
+      if (!result.ok) {
+        setError(result.error.message);
+        return;
+      }
+      setSaved(result.data);
+      setDraft({
+        mode: result.data.mode,
+        recordTemplate: result.data.recordTemplate,
+        remoteTemplate: result.data.remoteTemplate,
+        prompt: result.data.prompt,
+        llm: result.data.llm,
+      });
+    });
+  }, [api]);
+
+  useEffect(() => {
+    if (recordTemplateDraft === undefined) return;
+    const timer = window.setTimeout(() => {
+      void api.reportSettings.preview(recordTemplateDraft).then((result) => {
+        if (result.ok) {
+          setRecordPreview(result.data);
+          setError(null);
+        } else {
+          setError(result.error.message);
+        }
+      });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [api, recordTemplateDraft]);
+
+  useEffect(() => {
+    if (remoteTemplateDraft === undefined) return;
+    const timer = window.setTimeout(() => {
+      void api.reportSettings.preview(remoteTemplateDraft).then((result) => {
+        if (result.ok) setRemotePreview(result.data);
+        else setError(result.error.message);
+      });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [api, remoteTemplateDraft]);
+
+  if (!draft) {
+    return (
+      <SettingsCard title="周报生成" description="正在读取模板与模型配置…">
+        {error ? <p className="text-sm text-red-700">{error}</p> : null}
+      </SettingsCard>
+    );
+  }
+
+  const insecureRemoteHttp = isNonLoopbackHttpUrl(draft.llm.baseUrl);
+
+  const request = (): ReportSettingsPatch => ({
+    ...draft,
+    ...(clearApiKey ? { apiKey: '' } : apiKey ? { apiKey } : {}),
+  });
+
+  const updateLlm = (patch: Partial<ReportSettingsPatch['llm']>) =>
+    setDraft((current) => (current ? { ...current, llm: { ...current.llm, ...patch } } : current));
+
+  const save = async () => {
+    setBusy('save');
+    setError(null);
+    setMessage(null);
+    const result = await api.reportSettings.save(request());
+    setBusy(null);
+    if (!result.ok) {
+      setError(result.error.message);
+      return;
+    }
+    setSaved(result.data);
+    setDraft({
+      mode: result.data.mode,
+      recordTemplate: result.data.recordTemplate,
+      remoteTemplate: result.data.remoteTemplate,
+      prompt: result.data.prompt,
+      llm: result.data.llm,
+    });
+    setApiKey('');
+    setClearApiKey(false);
+    setMessage('周报设置已保存');
+  };
+
+  const testConnection = async () => {
+    setBusy('test');
+    setError(null);
+    setMessage(null);
+    const result = await api.reportSettings.testConnection(request());
+    setBusy(null);
+    if (result.ok) setMessage(result.data);
+    else setError(result.error.message);
+  };
+
+  return (
+    <SettingsCard
+      title="周报模板与生成方式"
+      description="本地模式只生成 TXT 工作记录；远程模式会结合完整模板和提示词生成完整周报。"
+    >
+      <div className="space-y-5">
+        <fieldset disabled={busy !== null}>
+          <legend className="text-sm font-medium">生成方式</legend>
+          <div className="mt-2 flex flex-wrap gap-3 text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                checked={draft.mode === 'local-template'}
+                name="report-mode"
+                onChange={() => setDraft({ ...draft, mode: 'local-template' })}
+                type="radio"
+              />
+              本地模板（不联网）
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                checked={draft.mode === 'remote-llm'}
+                name="report-mode"
+                onChange={() => setDraft({ ...draft, mode: 'remote-llm' })}
+                type="radio"
+              />
+              远程大模型
+            </label>
+          </div>
+        </fieldset>
+
+        <label className="block text-sm font-medium" htmlFor="report-template">
+          本地 TXT 工作记录模板
+        </label>
+        <textarea
+          className="mt-[-12px] min-h-48 w-full rounded-xl border border-stone-300 bg-white p-3 font-mono text-xs outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-100"
+          id="report-template"
+          onChange={(event) => setDraft({ ...draft, recordTemplate: event.target.value })}
+          spellCheck={false}
+          value={draft.recordTemplate}
+        />
+        <p className="mt-[-12px] text-xs text-stone-500">
+          可用变量：{'{{iso_year}}'}、{'{{iso_week}}'}、{'{{week_start}}'}、{'{{week_end}}'}、
+          {'{{tasks}}'}（必需）
+        </p>
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-sm font-medium">本地预览</span>
+            <button
+              className="text-xs text-amber-800 hover:underline"
+              onClick={() =>
+                void api.reportSettings.getDefaultText('record-template').then((result) => {
+                  if (result.ok) setDraft({ ...draft, recordTemplate: result.data });
+                })
+              }
+              type="button"
+            >
+              恢复默认模板
+            </button>
+          </div>
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-stone-100 p-3 text-xs text-stone-700">
+            {recordPreview || '模板有效后将在这里显示预览'}
+          </pre>
+        </div>
+
+        {draft.mode === 'remote-llm' ? (
+          <div className="space-y-4 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="text-sm font-medium" htmlFor="remote-report-template">
+                  远程完整周报模板
+                </label>
+                <div className="flex gap-3 text-xs">
+                  <label className="cursor-pointer text-amber-800 hover:underline">
+                    导入 TXT / Markdown
+                    <input
+                      accept=".txt,.md,text/plain,text/markdown"
+                      className="sr-only"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (!file) return;
+                        if (file.size > 100_000) {
+                          setError('完整周报模板文件不能超过 100 KB');
+                          return;
+                        }
+                        setError(null);
+                        void file
+                          .text()
+                          .then((text) =>
+                            setDraft((current) =>
+                              current ? { ...current, remoteTemplate: text } : current,
+                            ),
+                          )
+                          .catch(() => setError('无法读取完整周报模板文件'));
+                        event.target.value = '';
+                      }}
+                      type="file"
+                    />
+                  </label>
+                  <button
+                    className="text-amber-800 hover:underline"
+                    onClick={() =>
+                      void api.reportSettings.getDefaultText('remote-template').then((result) => {
+                        if (result.ok) setDraft({ ...draft, remoteTemplate: result.data });
+                      })
+                    }
+                    type="button"
+                  >
+                    恢复默认
+                  </button>
+                </div>
+              </div>
+              <textarea
+                className="mt-2 min-h-64 w-full rounded-xl border border-stone-300 bg-white p-3 font-mono text-xs outline-none focus:border-amber-600"
+                id="remote-report-template"
+                onChange={(event) => setDraft({ ...draft, remoteTemplate: event.target.value })}
+                spellCheck={false}
+                value={draft.remoteTemplate}
+              />
+              <p className="mt-2 text-xs text-stone-600">
+                模型会保持此结构，并结合本地工作记录填充“收获与成长”“不足与反思”和“下周计划”。
+              </p>
+              <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-white/80 p-3 text-xs text-stone-700">
+                {remotePreview || '完整模板有效后将在这里显示示例预览'}
+              </pre>
+            </div>
+
+            <label className="block text-sm font-medium" htmlFor="report-prompt">
+              远程写作提示词
+              <textarea
+                className="mt-2 min-h-40 w-full rounded-xl border border-stone-300 bg-white p-3 text-xs leading-5 outline-none focus:border-amber-600"
+                id="report-prompt"
+                onChange={(event) => setDraft({ ...draft, prompt: event.target.value })}
+                value={draft.prompt}
+              />
+            </label>
+            <div className="mt-[-8px] flex items-center justify-between gap-3 text-xs text-stone-600">
+              <span>本地记录、完整模板和未完成待办会由应用自动附加，无需复制进提示词。</span>
+              <button
+                className="shrink-0 text-amber-800 hover:underline"
+                onClick={() =>
+                  void api.reportSettings.getDefaultText('prompt').then((result) => {
+                    if (result.ok) setDraft({ ...draft, prompt: result.data });
+                  })
+                }
+                type="button"
+              >
+                恢复默认提示词
+              </button>
+            </div>
+
+            <label className="block text-sm font-medium">
+              服务商
+              <select
+                className="mt-2 w-full rounded-lg border border-stone-300 bg-white px-3 py-2"
+                onChange={(event) => {
+                  const provider = event.target.value as LlmProviderId;
+                  const preset = PROVIDER_PRESETS.find((item) => item.id === provider);
+                  setDraft({
+                    ...draft,
+                    llm: {
+                      ...draft.llm,
+                      provider,
+                      ...(preset && provider !== 'custom'
+                        ? { baseUrl: preset.baseUrl, model: preset.model }
+                        : {}),
+                      allowInsecureHttp: false,
+                    },
+                  });
+                }}
+                value={draft.llm.provider}
+              >
+                {PROVIDER_PRESETS.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    {provider.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm font-medium">
+              Base URL
+              <input
+                className="mt-2 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 font-mono text-xs"
+                onChange={(event) =>
+                  updateLlm({ baseUrl: event.target.value, allowInsecureHttp: false })
+                }
+                value={draft.llm.baseUrl}
+              />
+            </label>
+            {insecureRemoteHttp ? (
+              <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-xs leading-5 text-red-900">
+                <label className="flex items-start gap-2 font-medium">
+                  <input
+                    checked={draft.llm.allowInsecureHttp}
+                    className="mt-1"
+                    onChange={(event) => updateLlm({ allowInsecureHttp: event.target.checked })}
+                    type="checkbox"
+                  />
+                  <span>
+                    我了解 API Key、两份模板、提示词和周报内容将通过明文 HTTP 传输，仍允许连接此地址。
+                  </span>
+                </label>
+                {!draft.llm.allowInsecureHttp ? (
+                  <p className="mt-2">勾选后才能保存设置、测试连接或生成周报。</p>
+                ) : null}
+              </div>
+            ) : null}
+            <label className="block text-sm font-medium">
+              模型 ID
+              <input
+                className="mt-2 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 font-mono text-xs"
+                onChange={(event) => updateLlm({ model: event.target.value })}
+                value={draft.llm.model}
+              />
+            </label>
+            <label className="block text-sm font-medium">
+              API Key
+              <input
+                autoComplete="off"
+                className="mt-2 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 font-mono text-xs"
+                disabled={clearApiKey}
+                onChange={(event) => {
+                  setApiKey(event.target.value);
+                  setClearApiKey(false);
+                }}
+                placeholder={
+                  saved?.apiKeyMask ??
+                  (draft.llm.provider === 'local' ? '本地服务可留空' : '输入后加密保存在本机')
+                }
+                type="password"
+                value={apiKey}
+              />
+            </label>
+            {saved?.hasApiKey ? (
+              <label className="flex items-center gap-2 text-xs text-stone-600">
+                <input
+                  checked={clearApiKey}
+                  onChange={(event) => {
+                    setClearApiKey(event.target.checked);
+                    if (event.target.checked) setApiKey('');
+                  }}
+                  type="checkbox"
+                />
+                保存时删除已存 API Key
+              </label>
+            ) : null}
+            <details className="text-sm">
+              <summary className="cursor-pointer font-medium">高级参数</summary>
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                <label>
+                  Temperature
+                  <input
+                    className="mt-1 w-full rounded border p-2"
+                    max="2"
+                    min="0"
+                    onChange={(event) => updateLlm({ temperature: Number(event.target.value) })}
+                    step="0.1"
+                    type="number"
+                    value={draft.llm.temperature}
+                  />
+                </label>
+                <label>
+                  最大 Tokens
+                  <input
+                    className="mt-1 w-full rounded border p-2"
+                    min="1"
+                    onChange={(event) => updateLlm({ maxTokens: Number(event.target.value) })}
+                    type="number"
+                    value={draft.llm.maxTokens}
+                  />
+                </label>
+                <label>
+                  超时（毫秒）
+                  <input
+                    className="mt-1 w-full rounded border p-2"
+                    min="1000"
+                    onChange={(event) => updateLlm({ timeoutMs: Number(event.target.value) })}
+                    step="1000"
+                    type="number"
+                    value={draft.llm.timeoutMs}
+                  />
+                </label>
+              </div>
+            </details>
+            <button
+              className="settings-secondary-button"
+              disabled={busy !== null}
+              onClick={() => void testConnection()}
+              type="button"
+            >
+              {busy === 'test' ? '正在测试…' : '测试连接'}
+            </button>
+          </div>
+        ) : null}
+
+        {error || message ? (
+          <p
+            className={`text-sm ${error ? 'text-red-700' : 'text-emerald-700'}`}
+            role={error ? 'alert' : 'status'}
+          >
+            {error ?? message}
+          </p>
+        ) : null}
+        <button
+          className="settings-primary-button"
+          disabled={busy !== null}
+          onClick={() => void save()}
+          type="button"
+        >
+          {busy === 'save' ? '正在保存…' : '保存周报设置'}
+        </button>
+      </div>
+    </SettingsCard>
+  );
+}
+
+const isNonLoopbackHttpUrl = (input: string): boolean => {
+  try {
+    const url = new URL(input);
+    const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    const loopback =
+      hostname === 'localhost' ||
+      hostname === '::1' ||
+      hostname === '0:0:0:0:0:0:0:1' ||
+      /^127(?:\.\d{1,3}){3}$/.test(hostname);
+    return url.protocol === 'http:' && !loopback;
+  } catch {
+    return false;
+  }
+};
 
 function SettingsCard({
   title,
