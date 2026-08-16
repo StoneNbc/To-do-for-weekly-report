@@ -33,6 +33,7 @@ const SAMPLE_TASKS: WeeklyTask[] = [
   { date: '2026-08-12', content: '同步本周进展与风险', time: '18:30' },
 ];
 
+/** 聚合模板、非敏感配置和安全凭据状态；Renderer 永远拿不到 API Key 明文。 */
 export class ReportSettingsService {
   readonly #config: ConfigService;
   readonly #recordTemplates: ReportTemplateService;
@@ -73,6 +74,7 @@ export class ReportSettingsService {
   }
 
   preview(template: string): string {
+    // 设置页预览固定使用内置示例，不读取真实任务，也不会触发远程 Agent。
     return renderTemplateReport(SAMPLE_TASKS, SAMPLE_CONTEXT, template);
   }
 
@@ -83,6 +85,7 @@ export class ReportSettingsService {
   }
 
   async save(patch: ReportSettingsPatch): Promise<ReportSettingsSnapshot> {
+    // 所有文本和连接参数先校验，避免因可预期输入错误产生任何磁盘副作用。
     validateReportTemplate(patch.recordTemplate);
     validateReportTemplate(patch.remoteTemplate);
     const llm = this.#normalizeSettings(patch.llm);
@@ -96,6 +99,7 @@ export class ReportSettingsService {
       this.#remoteTemplates.save(patch.remoteTemplate),
       this.#prompts.save(patch.prompt),
     ]);
+    // 受控文本写入成功后才发布路径和生成模式；跨文件完整事务仍需单独的版本化提交方案。
     await this.#config.commit({
       agent: patch.mode === 'remote-llm' ? 'openai-compatible' : 'template',
       template_path: path.basename(this.#recordTemplates.getControlledPath()),
@@ -118,6 +122,7 @@ export class ReportSettingsService {
       patch.apiKey === ''
         ? null
         : patch.apiKey?.trim() || (await this.#credentials.get(origin))?.apiKey || null;
+    // 测试只使用内置示例，不把用户真实任务或正在编辑的模板发送到远程服务。
     const agent = new OpenAICompatibleAgent({
       settings,
       recordTemplate: this.#recordTemplates.getDefault(),
@@ -146,6 +151,7 @@ export class ReportSettingsService {
         getLlmCredentialOrigin(settings.baseUrl, settings.allowInsecureHttp),
       );
     } catch {
+      // 设置快照把损坏或不可解密的密钥视为未配置，不把底层解密细节暴露给 Renderer。
       return null;
     }
   }

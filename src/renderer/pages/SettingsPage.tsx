@@ -20,6 +20,7 @@ const PRESET_COLORS = [
   { name: '雾白', value: '#F5F5F4' },
 ] as const;
 
+/** 设置页只维护编辑态；持久化、密钥和文件访问都通过类型化 Preload API 进入 Main。 */
 export function SettingsPage() {
   const api = useElectronAPI();
   const [settings, setSettings] = useState<SettingsSnapshot | null>(null);
@@ -63,6 +64,7 @@ export function SettingsPage() {
       setSaving(true);
       setError(null);
       setNotice(null);
+      // 外观先乐观更新以保持滑块/色板响应；Main 失败时使用 previous 完整回滚。
       setSettings({
         ...previous,
         ...(patch.noteColor !== undefined ? { noteColor: patch.noteColor } : {}),
@@ -98,6 +100,7 @@ export function SettingsPage() {
   };
 
   const commitOpacity = () => {
+    // pointer、键盘和失焦可能连续触发，只在草稿确实变化时提交一次。
     if (settings && opacityDraft !== savedRef.current?.noteOpacity) {
       void commit({ noteOpacity: opacityDraft });
     }
@@ -368,6 +371,7 @@ function ReportGenerationSettings() {
     });
   }, [api]);
 
+  // 模板预览在 Renderer 防抖，但真正的解析与示例渲染仍由 Main 的受控服务完成。
   useEffect(() => {
     if (recordTemplateDraft === undefined) return;
     const timer = window.setTimeout(() => {
@@ -406,6 +410,7 @@ function ReportGenerationSettings() {
 
   const request = (): ReportSettingsPatch => ({
     ...draft,
+    // 空 API Key 表示显式删除；未填写则省略字段，让 Main 保留已保存密钥。
     ...(clearApiKey ? { apiKey: '' } : apiKey ? { apiKey } : {}),
   });
 
@@ -602,6 +607,7 @@ function ReportGenerationSettings() {
                 onChange={(event) => {
                   const provider = event.target.value as LlmProviderId;
                   const preset = PROVIDER_PRESETS.find((item) => item.id === provider);
+                  // 切换服务商会重置明文 HTTP 授权，防止旧地址的风险确认沿用到新地址。
                   setDraft({
                     ...draft,
                     llm: {
@@ -761,6 +767,7 @@ function ReportGenerationSettings() {
 }
 
 const isNonLoopbackHttpUrl = (input: string): boolean => {
+  // 这里只控制风险确认 UI；Main 的 EndpointPolicy 才是最终安全边界。
   try {
     const url = new URL(input);
     const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
@@ -793,6 +800,7 @@ function SettingsCard({
   );
 }
 
+/** 统一通用布尔设置的标签、说明和键盘可访问结构。 */
 function SettingSwitch({
   label,
   description,

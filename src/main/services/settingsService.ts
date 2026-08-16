@@ -20,6 +20,7 @@ export interface SettingsServiceOptions {
   runtime: SettingsRuntimeTarget;
 }
 
+/** 将持久配置映射为公开设置快照，并协调即时预览、可靠提交与多窗口同步。 */
 export class SettingsService {
   readonly #config: Pick<ConfigService, 'get' | 'commit'>;
   readonly #dataDirectory: string;
@@ -36,6 +37,7 @@ export class SettingsService {
   }
 
   previewAppearance(input: AppearancePreview): void {
+    // 预览只改变窗口运行态；用户未提交时 config.json 仍保持最后一次成功值。
     const current = this.get();
     this.#runtime.previewAppearance({
       noteColor: input.noteColor ?? current.noteColor,
@@ -56,10 +58,12 @@ export class SettingsService {
     try {
       const config = await this.#config.commit(configPatch);
       const snapshot = this.#toSnapshot(config);
+      // 配置落盘成功后再更新窗口并广播，其他窗口不会看到未持久化状态。
       this.#runtime.applySettings(snapshot);
       this.#runtime.broadcastSettingsChanged(snapshot);
       return snapshot;
     } catch (error) {
+      // 提交失败时撤销正在显示的颜色/透明度预览，恢复磁盘中的权威设置。
       this.cancelAppearancePreview();
       throw toSettingsWriteError(error);
     }

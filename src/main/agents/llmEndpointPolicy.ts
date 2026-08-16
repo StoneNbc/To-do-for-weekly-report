@@ -1,3 +1,4 @@
+/** 只把真正的本机回环地址视为可信 HTTP 例外，普通局域网地址仍走显式风险确认。 */
 const isLoopbackHost = (hostname: string): boolean => {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
   return (
@@ -8,6 +9,10 @@ const isLoopbackHost = (hostname: string): boolean => {
   );
 };
 
+/**
+ * 将用户输入规范化为稳定 Base URL，并在发起网络请求前落实协议与凭据边界。
+ * 该函数不访问网络，因此保存设置、测试连接和正式生成可以复用完全相同的规则。
+ */
 export const normalizeLlmBaseUrl = (input: string, allowInsecureHttp = false): string => {
   let url: URL;
   try {
@@ -29,12 +34,14 @@ export const normalizeLlmBaseUrl = (input: string, allowInsecureHttp = false): s
   return url.toString().replace(/\/$/, '');
 };
 
+/** API Key 按 origin 绑定，路径变化不能把同一密钥复制到另一个协议、主机或端口。 */
 export const getLlmCredentialOrigin = (baseUrl: string, allowInsecureHttp = false): string =>
   new URL(normalizeLlmBaseUrl(baseUrl, allowInsecureHttp)).origin;
 
 export const isLoopbackLlmBaseUrl = (baseUrl: string): boolean =>
   isLoopbackHost(new URL(normalizeLlmBaseUrl(baseUrl, true)).hostname);
 
+/** 兼容用户填写 Base URL 或完整 Chat Completions endpoint，同时避免重复追加路径。 */
 export const getChatCompletionsUrl = (baseUrl: string, allowInsecureHttp = false): string => {
   const normalized = normalizeLlmBaseUrl(baseUrl, allowInsecureHttp);
   if (/\/chat\/completions$/i.test(new URL(normalized).pathname)) return normalized;

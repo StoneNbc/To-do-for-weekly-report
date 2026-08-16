@@ -13,11 +13,13 @@ export interface RegisterReportSettingsHandlersOptions {
   logger: AppLogger;
 }
 
+/** 注册周报设置白名单 IPC；所有 Renderer 输入都在进入 Service 前执行运行时校验。 */
 export const registerReportSettingsHandlers = ({
   ipcMain,
   settings,
   logger,
 }: RegisterReportSettingsHandlersOptions): (() => void) => {
+  // 统一把可预期校验错误映射为 INVALID_INPUT，其他异常交给脱敏错误边界处理。
   const wrap = async <T>(operation: () => Promise<T> | T): Promise<ApiResult<T>> => {
     try {
       return { ok: true, data: await operation() };
@@ -47,6 +49,7 @@ export const registerReportSettingsHandlers = ({
   );
 
   return () => {
+    // 测试重建或应用退出时完整卸载，避免重复注册同名 Electron handler。
     ipcMain.removeHandler(IPC.reportSettingsGet);
     ipcMain.removeHandler(IPC.reportSettingsPreview);
     ipcMain.removeHandler(IPC.reportSettingsGetDefaultTemplate);

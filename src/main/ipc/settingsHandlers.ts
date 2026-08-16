@@ -13,12 +13,14 @@ export interface RegisterSettingsHandlersOptions {
   logger: AppLogger;
 }
 
+/** 设置 IPC 只暴露具体操作，不把任意文件路径、Shell 命令或 ConfigService 交给 Renderer。 */
 export const registerSettingsHandlers = ({
   ipcMain,
   settings,
   shellActions,
   logger,
 }: RegisterSettingsHandlersOptions): (() => void) => {
+  // 记录实际注册的通道，使测试和应用重建能够对称卸载全部 handler。
   const channels: string[] = [];
   const handle = <T>(channel: string, operation: (...args: unknown[]) => Promise<T> | T): void => {
     channels.push(channel);

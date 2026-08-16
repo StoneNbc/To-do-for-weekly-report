@@ -9,6 +9,7 @@ export interface SafeStorageAdapter {
   decryptString(value: Buffer): string;
 }
 
+// secrets.json 只允许保存 origin 和系统加密后的载荷，绝不接受明文 API Key。
 const secretFileSchema = z.object({
   schema_version: z.literal(1),
   origin: z.string().url(),
@@ -20,6 +21,7 @@ export interface StoredCredential {
   origin: string;
 }
 
+/** 使用 Electron safeStorage 持久化 API Key，并将凭据严格绑定到保存时的 origin。 */
 export class CredentialService {
   constructor(
     private readonly secretsFile: string,
@@ -36,6 +38,7 @@ export class CredentialService {
     try {
       const raw: unknown = JSON.parse(await readFile(this.secretsFile, 'utf8'));
       const stored = secretFileSchema.parse(raw);
+      // 地址不匹配时视为未配置，避免把旧服务密钥发送给新的服务商。
       if (stored.origin !== origin) return null;
       const apiKey = this.safeStorage.decryptString(
         Buffer.from(stored.encrypted_api_key, 'base64'),
@@ -71,10 +74,12 @@ export class CredentialService {
       encoding: 'utf8',
       mode: 0o600,
     });
+    // 同目录临时文件 + rename 避免崩溃时留下截断的 secrets.json。
     await rename(temporary, this.secretsFile);
   }
 }
 
+/** Renderer 只展示不可逆掩码；短密钥完全隐藏，避免掩码本身泄露过多信息。 */
 export const maskApiKey = (apiKey: string): string => {
   if (apiKey.length <= 8) return '••••••••';
   return `${apiKey.slice(0, 3)}••••${apiKey.slice(-4)}`;

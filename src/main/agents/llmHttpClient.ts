@@ -10,6 +10,10 @@ interface ChatCompletionResponse {
   choices?: Array<{ message?: { content?: unknown } }>;
 }
 
+/**
+ * Main Process 专用的最小 OpenAI Chat Completions 客户端。
+ * 它不接收任意 Header 或 HTTP 方法，避免 Renderer 把该能力扩展成通用网络代理。
+ */
 export class LlmHttpClient {
   async complete(
     settings: LlmConnectionSettings,
@@ -17,6 +21,7 @@ export class LlmHttpClient {
     messages: readonly ChatMessage[],
     signal?: AbortSignal,
   ): Promise<string> {
+    // 用内部 Controller 汇合用户取消与超时，并在错误映射时保留两者不同的用户语义。
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort('timeout'), settings.timeoutMs);
     const abortFromCaller = (): void => controller.abort('cancelled');
@@ -40,6 +45,7 @@ export class LlmHttpClient {
         {
           method: 'POST',
           headers,
+          // 禁止自动重定向，避免 Authorization 被意外带到另一个 origin。
           redirect: 'manual',
           signal: controller.signal,
           body: requestBody,
@@ -90,6 +96,7 @@ export class LlmHttpClient {
   }
 }
 
+/** Content-Length 可能缺失或不可信，因此读取流时再次执行硬字节上限。 */
 const readLimitedResponse = async (response: Response): Promise<string> => {
   if (!response.body) return '';
   const reader = response.body.getReader();
