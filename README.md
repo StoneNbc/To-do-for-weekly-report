@@ -247,6 +247,8 @@ documents/               # PRD、开发设计、交接与协作说明
 | `pnpm build`      | 构建 Renderer、Main 和 Preload                |
 | `pnpm package`    | 构建目录形式的本地应用包                      |
 | `pnpm dist`       | 构建平台分发包                                |
+| `pnpm dist:mac`   | 构建 macOS 通用 DMG 与 ZIP                    |
+| `pnpm dist:win`   | 构建 Windows x64 NSIS 安装包                  |
 | `pnpm format`     | 使用 Prettier 格式化项目                      |
 
 ## 构建应用
@@ -270,6 +272,8 @@ pnpm dist
 
 构建 Windows 安装包建议在 Windows 环境或对应 CI Runner 中执行并完成实机验收。
 
+仓库提供 `Build desktop installers` GitHub Actions 工作流。它可以手动触发，验证通过后分别上传 macOS 通用 DMG/ZIP 和 Windows x64 NSIS 安装包；详细操作与未签名提示见[试用版打包与分发](./documents/试用版打包与分发-v1.0.md)。
+
 ## 开发文档
 
 - [开发交接文档](./documents/开发交接文档-v1.0.md)：环境、架构、模块职责、调试和已知风险。
@@ -277,6 +281,7 @@ pnpm dist
 - [开发设计文档](./documents/开发设计文档-悬浮便利贴与一键周报-v1.0.md)：技术方案、数据流与模块设计。
 - [远程 LLM 需求文档](./documents/自定义周报模板与远程LLM需求文档-v1.0.md)：双模板、提示词、隐私和验收边界。
 - [远程 LLM 开发设计](./documents/自定义周报模板与远程LLM开发设计-v1.0.md)：凭据、网络、Agent 和草稿设计。
+- [试用版打包与分发](./documents/试用版打包与分发-v1.0.md)：双平台安装包、下载、校验与签名说明。
 - [多 Agent 并行开发策略](./documents/多Agent并行开发策略-v1.0.md)：并行开发边界和交付要求。
 - [Agent 协作约束](./documents/AGENTS.md)：修改代码前必须遵守的核心约束。
 
