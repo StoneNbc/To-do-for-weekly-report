@@ -274,6 +274,25 @@ pnpm dist
 
 仓库提供 `Build desktop installers` GitHub Actions 工作流。它可以手动触发，验证通过后分别上传 macOS 通用 DMG/ZIP 和 Windows x64 NSIS 安装包；推送 `v*` 标签时还会创建 GitHub Release，并将安装包与校验文件添加到 Release Assets。详细操作与未签名提示见[试用版打包与分发](./documents/试用版打包与分发-v1.0.md)。
 
+Release Assets 的用途：
+
+| 产物 | 用途 |
+| --- | --- |
+| macOS `.dmg` | Mac 用户的首选安装镜像，打开后将应用拖入“应用程序” |
+| macOS `.zip` | Mac 应用的备用压缩分发格式 |
+| Windows `.exe` | Windows x64 NSIS 安装程序 |
+| `SHA256SUMS-macos.txt` | 校验 macOS DMG、ZIP 的完整性 |
+| `SHA256SUMS-windows.txt` | 校验 Windows EXE 的完整性 |
+
+发布新版本时，先让 `package.json` 版本号与标签一致，再推送标签：
+
+```bash
+git tag -a v0.1.2 -m "v0.1.2"
+git push origin v0.1.2
+```
+
+普通代码或文档更新只推送分支、不创建 `v*` 标签，就不会发布新的 GitHub Release。
+
 ## 开发文档
 
 - [开发交接文档](./documents/开发交接文档-v1.0.md)：环境、架构、模块职责、调试和已知风险。
