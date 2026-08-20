@@ -272,7 +272,7 @@ pnpm dist
 
 构建 Windows 安装包建议在 Windows 环境或对应 CI Runner 中执行并完成实机验收。
 
-仓库提供 `Build desktop installers` GitHub Actions 工作流。它可以手动触发，验证通过后分别上传 macOS 通用 DMG/ZIP 和 Windows x64 NSIS 安装包；详细操作与未签名提示见[试用版打包与分发](./documents/试用版打包与分发-v1.0.md)。
+仓库提供 `Build desktop installers` GitHub Actions 工作流。它可以手动触发，验证通过后分别上传 macOS 通用 DMG/ZIP 和 Windows x64 NSIS 安装包；推送 `v*` 标签时还会创建 GitHub Release，并将安装包与校验文件添加到 Release Assets。详细操作与未签名提示见[试用版打包与分发](./documents/试用版打包与分发-v1.0.md)。
 
 ## 开发文档
 

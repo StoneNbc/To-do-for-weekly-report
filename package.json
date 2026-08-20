@@ -1,6 +1,6 @@
 {
   "name": "sticky-weekly",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "本地优先、支持可选远程 LLM 的桌面悬浮便利贴与周报工具",
   "type": "module",
