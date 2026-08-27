@@ -27,6 +27,10 @@ const addHistoricalSchema = z.object({
 });
 const editHistoricalSchema = addHistoricalSchema.extend({ locator: taskLocatorSchema });
 const deleteHistoricalSchema = z.object({ date: isoDateSchema, locator: taskLocatorSchema });
+const addPendingFromHistorySchema = z.object({ date: isoDateSchema, content: contentSchema });
+const editPendingFromHistorySchema = addPendingFromHistorySchema.extend({
+  locator: taskLocatorSchema,
+});
 
 export interface BusinessServices {
   task: Pick<
@@ -35,7 +39,15 @@ export interface BusinessServices {
   >;
   weekly: Pick<
     WeeklyService,
-    'getDay' | 'addHistoricalTask' | 'editHistoricalTask' | 'deleteHistoricalTask' | 'getWeek'
+    | 'getHistoryView'
+    | 'addPendingFromHistory'
+    | 'editPendingFromHistory'
+    | 'deletePendingFromHistory'
+    | 'completePendingOnDate'
+    | 'reopenHistoricalTask'
+    | 'editHistoricalTask'
+    | 'deleteHistoricalTask'
+    | 'getWeek'
   >;
 }
 
@@ -131,30 +143,59 @@ export const registerBusinessHandlers = ({
     onAppWrite?.('today', snapshot.revision);
     return snapshot;
   });
-  handle(IPC.historyGetDay, (input) => services.weekly.getDay(parse(isoDateSchema, input)));
-  handle(IPC.historyAdd, async (input) => {
-    const value = parse(addHistoricalSchema, input);
-    const snapshot = await services.weekly.addHistoricalTask(value);
-    // 先标记应用写入，再让 Watcher 事件抵达，可减少当前窗口的重复刷新。
-    onAppWrite?.('week', snapshot.revision);
+  handle(IPC.historyGetView, (input) =>
+    services.weekly.getHistoryView(parse(isoDateSchema, input)),
+  );
+  handle(IPC.historyAddPending, async (input) => {
+    const value = parse(addPendingFromHistorySchema, input);
+    const snapshot = await services.weekly.addPendingFromHistory(value);
+    onAppWrite?.('today', snapshot.backlog.revision);
+    return snapshot;
+  });
+  handle(IPC.historyEditPending, async (input) => {
+    const value = parse(editPendingFromHistorySchema, input);
+    const snapshot = await services.weekly.editPendingFromHistory(value);
+    onAppWrite?.('today', snapshot.backlog.revision);
+    return snapshot;
+  });
+  handle(IPC.historyDeletePending, async (input) => {
+    const value = parse(deleteHistoricalSchema, input);
+    const snapshot = await services.weekly.deletePendingFromHistory(value);
+    onAppWrite?.('today', snapshot.backlog.revision);
+    return snapshot;
+  });
+  handle(IPC.historyCompletePending, async (input) => {
+    const value = parse(deleteHistoricalSchema, input);
+    const snapshot = await services.weekly.completePendingOnDate(value);
+    onAppWrite?.('today', snapshot.backlog.revision);
+    onAppWrite?.('week', snapshot.completed.revision);
     const week = getIsoWeekInfo(value.date);
-    onWeekAppWrite?.(week.isoYear, week.isoWeek, snapshot.revision);
+    onWeekAppWrite?.(week.isoYear, week.isoWeek, snapshot.completed.revision);
+    return snapshot;
+  });
+  handle(IPC.historyReopenCompleted, async (input) => {
+    const value = parse(deleteHistoricalSchema, input);
+    const snapshot = await services.weekly.reopenHistoricalTask(value);
+    onAppWrite?.('today', snapshot.backlog.revision);
+    onAppWrite?.('week', snapshot.completed.revision);
+    const week = getIsoWeekInfo(value.date);
+    onWeekAppWrite?.(week.isoYear, week.isoWeek, snapshot.completed.revision);
     return snapshot;
   });
   handle(IPC.historyEdit, async (input) => {
     const value = parse(editHistoricalSchema, input);
     const snapshot = await services.weekly.editHistoricalTask(value);
-    onAppWrite?.('week', snapshot.revision);
+    onAppWrite?.('week', snapshot.completed.revision);
     const week = getIsoWeekInfo(value.date);
-    onWeekAppWrite?.(week.isoYear, week.isoWeek, snapshot.revision);
+    onWeekAppWrite?.(week.isoYear, week.isoWeek, snapshot.completed.revision);
     return snapshot;
   });
   handle(IPC.historyDelete, async (input) => {
     const value = parse(deleteHistoricalSchema, input);
     const snapshot = await services.weekly.deleteHistoricalTask(value);
-    onAppWrite?.('week', snapshot.revision);
+    onAppWrite?.('week', snapshot.completed.revision);
     const week = getIsoWeekInfo(value.date);
-    onWeekAppWrite?.(week.isoYear, week.isoWeek, snapshot.revision);
+    onWeekAppWrite?.(week.isoYear, week.isoWeek, snapshot.completed.revision);
     return snapshot;
   });
   handle(IPC.weekGet, (input) => {

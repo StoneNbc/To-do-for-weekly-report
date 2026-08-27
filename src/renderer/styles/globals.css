@@ -79,6 +79,12 @@ textarea,
   color: var(--note-fg);
 }
 
+.note-root .added-date {
+  border-color: var(--note-border);
+  background: var(--note-surface-strong);
+  color: var(--note-muted);
+}
+
 .note-root .task-row:hover,
 .note-root .task-row:focus-within,
 .note-root .icon-button:hover,

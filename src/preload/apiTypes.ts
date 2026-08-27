@@ -1,6 +1,6 @@
 import type {
   DataChangedEvent,
-  DayRecordSnapshot,
+  HistoryViewSnapshot,
   LocalTime,
   TaskLocator,
   TodaySnapshot,
@@ -34,6 +34,20 @@ export interface AddHistoricalInput {
   completedAt?: LocalTime;
 }
 
+export interface AddPendingFromHistoryInput {
+  date: string;
+  content: string;
+}
+
+export interface HistoricalTaskLocatorInput {
+  date: string;
+  locator: TaskLocator;
+}
+
+export interface EditPendingFromHistoryInput extends HistoricalTaskLocatorInput {
+  content: string;
+}
+
 export interface EditHistoricalInput extends AddHistoricalInput {
   locator: TaskLocator;
 }
@@ -57,10 +71,14 @@ export interface ElectronAPI {
     delete(locator: TaskLocator): Promise<ApiResult<TodaySnapshot>>;
   };
   history: {
-    getDay(date: string): Promise<ApiResult<DayRecordSnapshot>>;
-    add(input: AddHistoricalInput): Promise<ApiResult<DayRecordSnapshot>>;
-    edit(input: EditHistoricalInput): Promise<ApiResult<DayRecordSnapshot>>;
-    delete(input: DeleteHistoricalInput): Promise<ApiResult<DayRecordSnapshot>>;
+    getView(date: string): Promise<ApiResult<HistoryViewSnapshot>>;
+    addPending(input: AddPendingFromHistoryInput): Promise<ApiResult<HistoryViewSnapshot>>;
+    editPending(input: EditPendingFromHistoryInput): Promise<ApiResult<HistoryViewSnapshot>>;
+    deletePending(input: HistoricalTaskLocatorInput): Promise<ApiResult<HistoryViewSnapshot>>;
+    completePending(input: HistoricalTaskLocatorInput): Promise<ApiResult<HistoryViewSnapshot>>;
+    reopenCompleted(input: HistoricalTaskLocatorInput): Promise<ApiResult<HistoryViewSnapshot>>;
+    edit(input: EditHistoricalInput): Promise<ApiResult<HistoryViewSnapshot>>;
+    delete(input: DeleteHistoricalInput): Promise<ApiResult<HistoryViewSnapshot>>;
   };
   week: {
     get(input: IsoWeekInput): Promise<ApiResult<WeeklySnapshot>>;

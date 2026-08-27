@@ -1,11 +1,13 @@
 import { useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
-import type { TaskLocator } from '../../shared/domain';
+import type { AddedDateDisplay, TaskLocator } from '../../shared/domain';
 
 export interface TaskItemProps {
   locator: TaskLocator;
   content: string;
   completed: boolean;
   completedAt?: string | undefined;
+  addedDate?: string | undefined;
+  addedDateDisplay?: AddedDateDisplay | undefined;
   editableTime?: boolean;
   readOnlyCompletion?: boolean;
   disabled?: boolean | undefined;
@@ -23,6 +25,8 @@ export function TaskItem({
   content,
   completed,
   completedAt,
+  addedDate,
+  addedDateDisplay = 'hover',
   editableTime = false,
   readOnlyCompletion = false,
   disabled = false,
@@ -81,7 +85,7 @@ export function TaskItem({
   };
 
   return (
-    <li className="task-row no-drag group flex min-h-10 items-center gap-2 rounded-xl px-2 py-1.5 hover:bg-white/45 focus-within:bg-white/55">
+    <li className="task-row no-drag group relative flex min-h-10 items-center gap-2 rounded-xl px-2 py-1.5 hover:bg-white/45 focus-within:bg-white/55">
       {readOnlyCompletion ? (
         <span
           className="grid h-5 w-5 shrink-0 place-items-center text-emerald-700"
@@ -156,6 +160,16 @@ export function TaskItem({
       {completedAt ? (
         <time className="shrink-0 text-[11px] tabular-nums text-stone-400">{completedAt}</time>
       ) : null}
+      <span
+        className={`added-date shrink-0 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[10px] tabular-nums ${
+          addedDateDisplay === 'always'
+            ? ''
+            : 'invisible group-hover:visible group-focus-within:visible'
+        }`}
+        title={addedDate ? `添加日期：${addedDate}` : '添加日期未知'}
+      >
+        {addedDate ? `添加 ${addedDate.slice(5)}` : '添加日期未知'}
+      </span>
       <button
         aria-label={`删除任务：${content}`}
         className="delete-task rounded-md px-1.5 py-1 text-stone-400 opacity-0 outline-none hover:bg-red-50 hover:text-red-700 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-red-500 group-hover:opacity-100"

@@ -19,7 +19,7 @@ export class TaskService {
   async addTodayTask(content: string): Promise<TodaySnapshot> {
     // 每次写入前补偿跨日，防止新任务被写入昨天的 today.txt。
     await this.archiveService.reconcileToToday('before-mutation');
-    return (await this.todayRepository.addTask(content)).snapshot;
+    return (await this.todayRepository.addTask(content, null, getLocalDate(this.clock.now()))).snapshot;
   }
 
   async toggleTodayTask(locator: TaskLocator): Promise<TodaySnapshot> {

@@ -26,6 +26,21 @@ describe('repositories', () => {
     );
   });
 
+  it('persists added dates while editing and moving through repository snapshots', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'sticky-added-date-'));
+    const path = join(directory, 'today.txt');
+    await writeFile(path, '# 2026-08-13\n', 'utf8');
+    const repository = new TodayRepository(path, new TextFileStore(), () => '2026-08-13');
+    let result = await repository.addTask('记录日期', null, '2026-08-10');
+    expect(result.snapshot.tasks[0]?.addedDate).toBe('2026-08-10');
+    result = {
+      ...(await repository.updateTask(result.snapshot.tasks[0]!.locator, { content: '编辑后' })),
+      insertedLocator: result.insertedLocator,
+    };
+    expect(result.snapshot.tasks[0]).toMatchObject({ content: '编辑后', addedDate: '2026-08-10' });
+    expect(await readFile(path, 'utf8')).toContain('编辑后 @添加:2026-08-10');
+  });
+
   it('rejects an old revision without guessing by task content', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'sticky-conflict-'));
     const path = join(directory, 'today.txt');

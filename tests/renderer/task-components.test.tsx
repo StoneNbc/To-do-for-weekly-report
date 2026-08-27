@@ -52,6 +52,54 @@ describe('TaskItem', () => {
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
     expect(onEdit).not.toHaveBeenCalled();
   });
+
+  it('按设置常显添加日期，并为旧任务显示未知日期', () => {
+    const { rerender } = render(
+      <TaskItem
+        addedDate="2026-08-10"
+        addedDateDisplay="always"
+        completed={false}
+        content="有日期"
+        locator={{ line: 1, revision: 'r1' }}
+        onDelete={vi.fn()}
+        onEdit={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('添加 08-10')).toBeVisible();
+
+    rerender(
+      <TaskItem
+        addedDateDisplay="always"
+        completed={false}
+        content="旧任务"
+        locator={{ line: 2, revision: 'r2' }}
+        onDelete={vi.fn()}
+        onEdit={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('添加日期未知')).toBeVisible();
+  });
+
+  it('悬停模式使用浅色行内占位，不以绝对定位覆盖编辑框', () => {
+    render(
+      <TaskItem
+        addedDate="2026-08-10"
+        completed={false}
+        content="可编辑任务"
+        locator={{ line: 1, revision: 'r1' }}
+        onDelete={vi.fn()}
+        onEdit={vi.fn()}
+      />,
+    );
+
+    const addedDate = screen.getByText('添加 08-10');
+    expect(addedDate).toHaveClass('added-date', 'invisible', 'group-hover:visible');
+    expect(addedDate).not.toHaveClass('absolute', 'bg-stone-800', 'text-white');
+
+    fireEvent.doubleClick(screen.getByRole('button', { name: '任务内容：可编辑任务' }));
+    expect(screen.getByRole('textbox', { name: '编辑任务：可编辑任务' })).toBeInTheDocument();
+    expect(addedDate).not.toHaveClass('absolute');
+  });
 });
 
 describe('CompletedSection', () => {

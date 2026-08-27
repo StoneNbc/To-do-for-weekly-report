@@ -14,7 +14,7 @@ describe('AppRouter ElectronAPI contract', () => {
   it('不传测试属性时使用真实 window.electronAPI 进入便利贴', async () => {
     window.electronAPI = createMockElectronAPI().api;
     render(<AppRouter />);
-    expect(await screen.findByRole('textbox', { name: '添加今日任务' })).toBeInTheDocument();
+    expect(await screen.findByRole('textbox', { name: '添加待办' })).toBeInTheDocument();
   });
 
   it('仅白名单 weekly 和 settings 进入对应页面，未知 view 回退便利贴', async () => {
@@ -31,6 +31,6 @@ describe('AppRouter ElectronAPI contract', () => {
 
     window.history.replaceState({}, '', '/?view=unexpected');
     render(<AppRouter />);
-    expect(await screen.findByRole('textbox', { name: '添加今日任务' })).toBeInTheDocument();
+    expect(await screen.findByRole('textbox', { name: '添加待办' })).toBeInTheDocument();
   });
 });

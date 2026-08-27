@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { IpcMain } from 'electron';
-import type { TodaySnapshot, WeeklySnapshot } from '../../../src/shared/domain';
+import type { HistoryViewSnapshot, TodaySnapshot, WeeklySnapshot } from '../../../src/shared/domain';
 import { IPC } from '../../../src/main/ipc/channels';
 import { registerBusinessHandlers } from '../../../src/main/ipc/registerHandlers';
 import type { AppLogger } from '../../../src/main/logging/logger';
@@ -33,6 +33,12 @@ const weeklySnapshot: WeeklySnapshot = {
   total: 0,
 };
 
+const historyView: HistoryViewSnapshot = {
+  date: '2026-08-12',
+  backlog: snapshot,
+  completed: { date: '2026-08-12', revision: 'week-r', tasks: [], warnings: [] },
+};
+
 const setup = () => {
   const handlers = new Map<string, Handler>();
   const ipcMain = {
@@ -47,10 +53,14 @@ const setup = () => {
     deleteTodayTask: vi.fn(async () => snapshot),
   };
   const weekly = {
-    getDay: vi.fn(async () => ({ date: '2026-08-12', revision: 'r', tasks: [], warnings: [] })),
-    addHistoricalTask: vi.fn(async () => ({ date: '2026-08-12', revision: 'r', tasks: [], warnings: [] })),
-    editHistoricalTask: vi.fn(async () => ({ date: '2026-08-12', revision: 'r', tasks: [], warnings: [] })),
-    deleteHistoricalTask: vi.fn(async () => ({ date: '2026-08-12', revision: 'r', tasks: [], warnings: [] })),
+    getHistoryView: vi.fn(async () => historyView),
+    addPendingFromHistory: vi.fn(async () => historyView),
+    editPendingFromHistory: vi.fn(async () => historyView),
+    deletePendingFromHistory: vi.fn(async () => historyView),
+    completePendingOnDate: vi.fn(async () => historyView),
+    reopenHistoricalTask: vi.fn(async () => historyView),
+    editHistoricalTask: vi.fn(async () => historyView),
+    deleteHistoricalTask: vi.fn(async () => historyView),
     getWeek: vi.fn(async () => weeklySnapshot),
   };
   registerBusinessHandlers({
@@ -106,7 +116,7 @@ describe('business IPC registration', () => {
       expect.arrayContaining([
         IPC.todayGet,
         IPC.todayAdd,
-        IPC.historyGetDay,
+        IPC.historyGetView,
         IPC.weekGet,
       ]),
     );

@@ -14,6 +14,8 @@ const DAY_HEADER_RE = /^## (周[一二三四五六日]) (\d{2})-(\d{2})$/;
 const TASK_RE = /^- (.+)$/;
 const VALID_TRAILING_TIME_RE = /\s@([0-2]\d:[0-5]\d)$/;
 const TIME_LIKE_SUFFIX_RE = /\s@(\d{2}:\d{2})$/;
+const VALID_ADDED_DATE_RE = /\s@添加:(\d{4}-\d{2}-\d{2})$/;
+const ADDED_DATE_LIKE_RE = /\s@添加:(\S+)$/;
 
 interface WeekNodeBase {
   raw: string;
@@ -37,6 +39,7 @@ export interface ArchivedTaskNode extends WeekNodeBase {
   kind: 'archivedTask';
   date: string;
   content: string;
+  addedDate?: string;
   completedAt?: string;
 }
 
@@ -200,6 +203,17 @@ export const parseWeek = (text: string, options: ParseWeekOptions): WeekDocument
           makeWarning(file, line, 'INVALID_TIME', `无效的完成时间：${timeLikeSuffix[1]}`),
         );
       }
+      let addedDate: string | undefined;
+      const added = VALID_ADDED_DATE_RE.exec(content);
+      const addedLike = ADDED_DATE_LIKE_RE.exec(content);
+      if (added && isValidLocalDate(added[1] ?? '')) {
+        addedDate = added[1];
+        content = content.slice(0, added.index);
+      } else if (addedLike) {
+        warnings.push(
+          makeWarning(file, line, 'INVALID_ADDED_DATE', `无效的添加日期：${addedLike[1]}`),
+        );
+      }
       const node: ArchivedTaskNode = {
         kind: 'archivedTask',
         raw,
@@ -207,6 +221,7 @@ export const parseWeek = (text: string, options: ParseWeekOptions): WeekDocument
         date: currentDate,
         content,
       };
+      if (addedDate !== undefined) node.addedDate = addedDate;
       if (completedAt !== undefined) node.completedAt = completedAt;
       nodes.push(node);
       return;
@@ -245,8 +260,12 @@ export const formatDayHeader = (date: string): string => {
   return `## ${formatChineseWeekday(date)} ${date.slice(5)}`;
 };
 
-export const formatArchivedTask = (content: string, completedAt?: string): string =>
-  `- ${content}${completedAt ? ` @${completedAt}` : ''}`;
+export const formatArchivedTask = (
+  content: string,
+  addedDate?: string,
+  completedAt?: string,
+): string =>
+  `- ${content}${addedDate ? ` @添加:${addedDate}` : ''}${completedAt ? ` @${completedAt}` : ''}`;
 
 export const serializeWeek = (document: WeekDocument): string =>
   // 直接拼接节点 raw，未被 Repository 修改的行不会被格式化或丢失。

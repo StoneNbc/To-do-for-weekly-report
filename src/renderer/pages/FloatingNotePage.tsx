@@ -8,7 +8,9 @@ import {
   type CSSProperties,
 } from 'react';
 import type {
+  AddedDateDisplay,
   DayRecordSnapshot,
+  HistoryViewSnapshot,
   HistoricalTaskView,
   TaskLocator,
   TodaySnapshot,
@@ -19,7 +21,6 @@ import type { ApiResult } from '../../shared/results';
 import { addLocalDays, getIsoWeekInfo, getLocalDate } from '../../shared/dateUtils';
 import { AddTaskInput } from '../components/AddTaskInput';
 import { CompletedSection } from '../components/CompletedSection';
-import { HistoricalInput } from '../components/HistoricalInput';
 import { StatusBanner } from '../components/StatusBanner';
 import { TaskItem } from '../components/TaskItem';
 import { TaskList } from '../components/TaskList';
@@ -47,7 +48,11 @@ export function FloatingNotePage() {
   });
   const [exporting, setExporting] = useState(false);
   const requestTokenRef = useRef(0);
-  const watcherEchoRef = useRef<{ scope: 'today' | 'week'; expiresAt: number } | null>(null);
+  const watcherEchoRef = useRef<{
+    scopes: Array<'today' | 'week'>;
+    expiresAt: number;
+  } | null>(null);
+  const [addedDateDisplay, setAddedDateDisplay] = useState<AddedDateDisplay>('hover');
 
   const loadToday = useCallback(async () => {
     // 日期快速切换时只接受最后一次请求，防止较慢旧响应覆盖当前页面。
@@ -63,7 +68,7 @@ export function FloatingNotePage() {
     async (date: string) => {
       const requestToken = ++requestTokenRef.current;
       dispatch({ type: 'load-start', mode: 'history', date });
-      const result = await api.history.getDay(date);
+      const result = await api.history.getView(date);
       if (requestToken !== requestTokenRef.current) return;
       if (result.ok) dispatch({ type: 'load-success', snapshot: result.data });
       else dispatch({ type: 'load-failure', error: result.error });
@@ -78,6 +83,7 @@ export function FloatingNotePage() {
   const applySettings = useCallback((snapshot: SettingsSnapshot) => {
     setAlwaysOnTop(snapshot.alwaysOnTop);
     setAppearance({ noteColor: snapshot.noteColor, noteOpacity: snapshot.noteOpacity });
+    setAddedDateDisplay(snapshot.addedDateDisplay);
     dispatch({ type: 'set-completed-expanded', expanded: snapshot.completedExpanded });
   }, []);
 
@@ -137,10 +143,11 @@ export function FloatingNotePage() {
         if (
           event.reason === 'app-write' &&
           watcherEcho &&
-          watcherEcho.scope === event.scope &&
+          watcherEcho.scopes.includes(event.scope as 'today' | 'week') &&
           Date.now() <= watcherEcho.expiresAt
         ) {
-          watcherEchoRef.current = null;
+          watcherEcho.scopes = watcherEcho.scopes.filter((scope) => scope !== event.scope);
+          if (watcherEcho.scopes.length === 0) watcherEchoRef.current = null;
           return;
         }
         // 历史视图只响应当前所选日期所在周，避免其他周文件变化造成无意义刷新。
@@ -152,7 +159,7 @@ export function FloatingNotePage() {
         const affectsView =
           state.mode === 'today'
             ? event.scope === 'today'
-            : event.scope === 'week' && affectsSelectedWeek;
+            : event.scope === 'today' || (event.scope === 'week' && affectsSelectedWeek);
         if (affectsView) {
           dispatch({
             type: 'set-notice',
@@ -175,20 +182,28 @@ export function FloatingNotePage() {
       if (result.ok) {
         // Main 返回的快照是唯一事实来源，不在前端乐观拼装任务列表。
         watcherEchoRef.current = {
-          scope: state.mode === 'today' ? 'today' : 'week',
+          scopes: state.mode === 'today' ? ['today'] : ['today', 'week'],
           expiresAt: Date.now() + 1_000,
         };
         dispatch({ type: 'mutation-success', snapshot: result.data, notice: successNotice });
         return true;
       }
       dispatch({ type: 'mutation-failure', error: result.error });
+      if (result.error.code === 'IO_ERROR' && state.mode === 'history') {
+        // 跨文件操作与回滚都可能只成功一部分；重新读取两个文件，但不掩盖原错误。
+        const requestToken = ++requestTokenRef.current;
+        const latest = await api.history.getView(state.selectedDate);
+        if (requestToken === requestTokenRef.current && latest.ok) {
+          dispatch({ type: 'refresh-after-failure', snapshot: latest.data });
+        }
+      }
       if (result.error.code === 'FILE_CHANGED') {
         // 冲突后载入磁盘最新内容，但不自动重放用户动作，避免覆盖外部编辑。
         const requestToken = ++requestTokenRef.current;
         const latest =
           state.mode === 'today'
             ? await api.today.get()
-            : await api.history.getDay(state.selectedDate);
+            : await api.history.getView(state.selectedDate);
         if (requestToken === requestTokenRef.current && latest.ok) {
           dispatch({
             type: 'mutation-success',
@@ -205,10 +220,11 @@ export function FloatingNotePage() {
   const todayTasks = isTodaySnapshot(state.snapshot) ? state.snapshot.tasks : [];
   const pendingTasks = todayTasks.filter((task) => !task.completed);
   const completedTasks = todayTasks.filter((task) => task.completed);
-  const historicalSnapshot =
+  const historicalSnapshot: HistoryViewSnapshot | null =
     state.mode === 'history' && state.snapshot && !isTodaySnapshot(state.snapshot)
       ? state.snapshot
       : null;
+  const historicalPendingTasks = historicalSnapshot?.backlog.tasks ?? [];
   const saving = state.mutation === 'saving';
 
   const editToday = (task: TodayTaskView, content: string) => {
@@ -225,6 +241,15 @@ export function FloatingNotePage() {
       : { date: task.date, locator: task.locator, content };
     return applyMutation(() => api.history.edit(input));
   };
+
+  const editHistoricalPending = (task: TodayTaskView, content: string) =>
+    applyMutation(() =>
+      api.history.editPending({
+        date: state.selectedDate,
+        locator: task.locator,
+        content,
+      }),
+    );
 
   const exportCurrentWeek = useCallback(async () => {
     setMenuOpen(false);
@@ -361,6 +386,7 @@ export function FloatingNotePage() {
         ) : state.mode === 'today' ? (
           <>
             <TaskList
+              addedDateDisplay={addedDateDisplay}
               disabled={saving}
               onDelete={(locator) => void applyMutation(() => api.today.delete(locator))}
               onEdit={editToday}
@@ -368,6 +394,7 @@ export function FloatingNotePage() {
               tasks={pendingTasks}
             />
             <CompletedSection
+              addedDateDisplay={addedDateDisplay}
               disabled={saving}
               expanded={state.completedExpanded}
               onDelete={(locator) => void applyMutation(() => api.today.delete(locator))}
@@ -388,14 +415,38 @@ export function FloatingNotePage() {
             />
           </>
         ) : (
-          <HistoricalRecords
-            disabled={saving}
-            onDelete={(locator) =>
-              void applyMutation(() => api.history.delete({ date: state.selectedDate, locator }))
-            }
-            onEdit={editHistorical}
-            snapshot={historicalSnapshot}
-          />
+          <>
+            <TaskList
+              addedDateDisplay={addedDateDisplay}
+              disabled={saving}
+              onDelete={(locator) =>
+                void applyMutation(() =>
+                  api.history.deletePending({ date: state.selectedDate, locator }),
+                )
+              }
+              onEdit={editHistoricalPending}
+              onToggle={(locator) =>
+                void applyMutation(() =>
+                  api.history.completePending({ date: state.selectedDate, locator }),
+                )
+              }
+              tasks={historicalPendingTasks}
+            />
+            <HistoricalRecords
+              addedDateDisplay={addedDateDisplay}
+              disabled={saving}
+              onDelete={(locator) =>
+                void applyMutation(() => api.history.delete({ date: state.selectedDate, locator }))
+              }
+              onEdit={editHistorical}
+              onToggle={(locator) =>
+                void applyMutation(() =>
+                  api.history.reopenCompleted({ date: state.selectedDate, locator }),
+                )
+              }
+              snapshot={historicalSnapshot?.completed ?? null}
+            />
+          </>
         )}
       </section>
 
@@ -405,14 +456,14 @@ export function FloatingNotePage() {
           onAdd={(content) => applyMutation(() => api.today.add(content))}
         />
       ) : (
-        <HistoricalInput
+        <AddTaskInput
           disabled={saving}
-          onAdd={(content, completedAt) => {
-            const input = completedAt
-              ? { date: state.selectedDate, content, completedAt }
-              : { date: state.selectedDate, content };
-            return applyMutation(() => api.history.add(input), '已补录到所选历史日期');
-          }}
+          onAdd={(content) =>
+            applyMutation(
+              () => api.history.addPending({ date: state.selectedDate, content }),
+              '已添加到全局待办',
+            )
+          }
         />
       )}
     </main>
@@ -424,6 +475,8 @@ function HistoricalRecords({
   disabled,
   onEdit,
   onDelete,
+  onToggle,
+  addedDateDisplay,
 }: {
   snapshot: DayRecordSnapshot | null;
   disabled: boolean;
@@ -433,33 +486,42 @@ function HistoricalRecords({
     completedAt?: string,
   ) => Promise<boolean> | boolean;
   onDelete: (locator: TaskLocator) => void;
+  onToggle: (locator: TaskLocator) => void;
+  addedDateDisplay: AddedDateDisplay;
 }) {
-  if (!snapshot || snapshot.tasks.length === 0) {
-    return (
-      <p className="rounded-xl border border-dashed border-stone-400/40 px-3 py-8 text-center text-sm text-stone-500">
-        这一天还没有完成记录
-        <br />
-        <span className="text-xs">可在下方补录</span>
-      </p>
-    );
-  }
+  const tasks = snapshot?.tasks ?? [];
 
   return (
-    <ul aria-label="历史完成记录" className="space-y-1">
-      {snapshot.tasks.map((task) => (
-        <TaskItem
-          completed
-          completedAt={task.completedAt}
-          content={task.content}
-          disabled={disabled}
-          key={`${task.locator.revision}:${task.locator.line}`}
-          locator={task.locator}
-          onDelete={onDelete}
-          onEdit={(_, content, completedAt) => onEdit(task, content, completedAt)}
-          editableTime
-          readOnlyCompletion
-        />
-      ))}
-    </ul>
+    <section className="mt-3 border-t border-amber-900/10 pt-2" aria-labelledby="history-completed-heading">
+      <h2 className="px-2 py-1.5 text-xs font-medium text-stone-500" id="history-completed-heading">
+        已完成（{tasks.length}）
+      </h2>
+      {tasks.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-stone-400/40 px-3 py-6 text-center text-sm text-stone-500">
+          这一天还没有完成记录
+          <br />
+          <span className="text-xs">可从上方待办完成事项</span>
+        </p>
+      ) : (
+        <ul aria-label="历史完成记录" className="space-y-1">
+          {tasks.map((task) => (
+            <TaskItem
+              completed
+              addedDate={task.addedDate}
+              addedDateDisplay={addedDateDisplay}
+              completedAt={task.completedAt}
+              content={task.content}
+              disabled={disabled}
+              key={`${task.locator.revision}:${task.locator.line}`}
+              locator={task.locator}
+              onDelete={onDelete}
+              onEdit={(_, content, completedAt) => onEdit(task, content, completedAt)}
+              onToggle={onToggle}
+              editableTime
+            />
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

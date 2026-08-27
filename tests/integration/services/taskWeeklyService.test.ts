@@ -1,12 +1,17 @@
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { TodayRepository } from '../../../src/main/repositories/todayRepository';
 import { WeekRepository } from '../../../src/main/repositories/weekRepository';
 import { ArchiveService, type Clock } from '../../../src/main/services/archiveService';
 import { TaskService } from '../../../src/main/services/taskService';
-import { FutureHistoricalDateError, WeeklyService } from '../../../src/main/services/weeklyService';
+import {
+  CompletionBeforeAddedDateError,
+  FutureHistoricalDateError,
+  HistoryTransferPartialFailureError,
+  WeeklyService,
+} from '../../../src/main/services/weeklyService';
 
 const setup = async (todayText = '# 2026-08-13\n') => {
   const directory = await mkdtemp(join(tmpdir(), 'sticky-services-'));
@@ -18,7 +23,7 @@ const setup = async (todayText = '# 2026-08-13\n') => {
   const archive = new ArchiveService(today, weeks, clock);
   return {
     task: new TaskService(today, archive, clock),
-    weekly: new WeeklyService(weeks, today, clock),
+    weekly: new WeeklyService(weeks, today, clock, archive),
     today,
     weeks,
   };
@@ -28,7 +33,7 @@ describe('TaskService', () => {
   it('supports CRUD and injects the completion time from the main-process clock', async () => {
     const { task } = await setup();
     let snapshot = await task.addTodayTask(' 新任务 ');
-    expect(snapshot.tasks[0]?.content).toBe('新任务');
+    expect(snapshot.tasks[0]).toMatchObject({ content: '新任务', addedDate: '2026-08-13' });
     snapshot = await task.toggleTodayTask(snapshot.tasks[0]!.locator);
     expect(snapshot.tasks[0]).toMatchObject({ completed: true, completedAt: '14:20' });
     snapshot = await task.editTodayTask(snapshot.tasks[0]!.locator, '已编辑');
@@ -51,21 +56,148 @@ describe('TaskService', () => {
 
 describe('WeeklyService', () => {
   it('uses the selected historical date for add/edit/delete', async () => {
-    const { weekly } = await setup();
-    let day = await weekly.addHistoricalTask({
-      date: '2026-08-11',
-      content: '补录昨天',
+    const { weekly, weeks } = await setup();
+    const day = await weeks.addHistoricalTask('2026-08-11', {
+      content: '历史记录',
+      addedDate: '2026-08-10',
       completedAt: '18:00',
     });
-    expect(day.tasks[0]).toMatchObject({ date: '2026-08-11', content: '补录昨天' });
-    day = await weekly.editHistoricalTask({
+    let view = await weekly.editHistoricalTask({
       date: '2026-08-11',
       locator: day.tasks[0]!.locator,
-      content: '修改补录',
+      content: '修改记录',
+      completedAt: '18:00',
     });
-    expect(day.tasks[0]?.content).toBe('修改补录');
-    day = await weekly.deleteHistoricalTask({ date: '2026-08-11', locator: day.tasks[0]!.locator });
-    expect(day.tasks).toEqual([]);
+    expect(view.completed.tasks[0]).toMatchObject({
+      content: '修改记录',
+      addedDate: '2026-08-10',
+      completedAt: '18:00',
+    });
+    view = await weekly.deleteHistoricalTask({
+      date: '2026-08-11',
+      locator: view.completed.tasks[0]!.locator,
+    });
+    expect(view.completed.tasks).toEqual([]);
+  });
+
+  it('shows eligible global pending tasks and moves them to and from a historical date', async () => {
+    const { weekly, today } = await setup(
+      '# 2026-08-13\n- [ ] 可回填 @添加:2026-08-10\n- [ ] 旧任务\n- [ ] 尚未添加 @添加:2026-08-13\n',
+    );
+    let view = await weekly.getHistoryView('2026-08-12');
+    expect(view.backlog.tasks.map((task) => task.content)).toEqual(['可回填', '旧任务']);
+
+    view = await weekly.completePendingOnDate({
+      date: '2026-08-12',
+      locator: view.backlog.tasks[0]!.locator,
+    });
+    expect(view.completed.tasks[0]).toMatchObject({
+      content: '可回填',
+      addedDate: '2026-08-10',
+    });
+    expect(view.completed.tasks[0]).not.toHaveProperty('completedAt');
+    expect((await today.read()).snapshot.tasks.map((task) => task.content)).not.toContain('可回填');
+
+    view = await weekly.reopenHistoricalTask({
+      date: '2026-08-12',
+      locator: view.completed.tasks[0]!.locator,
+    });
+    expect(view.backlog.tasks.find((task) => task.content === '可回填')).toMatchObject({
+      content: '可回填',
+      addedDate: '2026-08-10',
+      completed: false,
+    });
+  });
+
+  it('records the selected history date and immediately shows the new global task', async () => {
+    const { weekly, today } = await setup();
+    const view = await weekly.addPendingFromHistory({ date: '2026-08-12', content: '今天录入' });
+    expect(view.backlog.tasks).toHaveLength(1);
+    expect(view.backlog.tasks[0]).toMatchObject({
+      content: '今天录入',
+      addedDate: '2026-08-12',
+    });
+    expect((await today.read()).snapshot.tasks[0]).toMatchObject({
+      content: '今天录入',
+      addedDate: '2026-08-12',
+    });
+  });
+
+  it('rejects completion before a known added date but allows legacy tasks', async () => {
+    const { weekly } = await setup(
+      '# 2026-08-13\n- [ ] 有日期 @添加:2026-08-12\n- [ ] 旧任务\n',
+    );
+    const todayView = await weekly.getHistoryView('2026-08-11');
+    expect(todayView.backlog.tasks.map((task) => task.content)).toEqual(['旧任务']);
+    const current = await weekly.getHistoryView('2026-08-12');
+    await expect(
+      weekly.completePendingOnDate({
+        date: '2026-08-11',
+        locator: current.backlog.tasks[0]!.locator,
+      }),
+    ).rejects.toBeInstanceOf(CompletionBeforeAddedDateError);
+    const completed = await weekly.completePendingOnDate({
+      date: '2026-08-11',
+      locator: todayView.backlog.tasks[0]!.locator,
+    });
+    expect(completed.completed.tasks[0]?.content).toBe('旧任务');
+  });
+
+  it('rolls back the week insertion when removing the pending task fails', async () => {
+    const { weekly, today, weeks } = await setup(
+      '# 2026-08-13\n- [ ] 回滚任务 @添加:2026-08-10\n',
+    );
+    const view = await weekly.getHistoryView('2026-08-12');
+    vi.spyOn(today, 'deleteTask').mockRejectedValueOnce(new Error('today write failed'));
+
+    await expect(
+      weekly.completePendingOnDate({
+        date: '2026-08-12',
+        locator: view.backlog.tasks[0]!.locator,
+      }),
+    ).rejects.toThrow('today write failed');
+    expect((await weeks.getDay('2026-08-12')).tasks).toEqual([]);
+    expect((await today.read()).snapshot.tasks[0]?.content).toBe('回滚任务');
+  });
+
+  it('reports partial failure when a cross-file rollback also fails', async () => {
+    const { weekly, today, weeks } = await setup(
+      '# 2026-08-13\n- [ ] 重复风险 @添加:2026-08-10\n',
+    );
+    const view = await weekly.getHistoryView('2026-08-12');
+    vi.spyOn(today, 'deleteTask').mockRejectedValueOnce(new Error('today write failed'));
+    vi.spyOn(weeks, 'deleteHistoricalTask').mockRejectedValueOnce(
+      new Error('rollback failed'),
+    );
+
+    await expect(
+      weekly.completePendingOnDate({
+        date: '2026-08-12',
+        locator: view.backlog.tasks[0]!.locator,
+      }),
+    ).rejects.toBeInstanceOf(HistoryTransferPartialFailureError);
+    expect((await weeks.getDay('2026-08-12')).tasks[0]?.content).toBe('重复风险');
+    expect((await today.read()).snapshot.tasks[0]?.content).toBe('重复风险');
+  });
+
+  it('rolls back the restored pending task when removing history fails', async () => {
+    const { weekly, today, weeks } = await setup();
+    const day = await weeks.addHistoricalTask('2026-08-12', {
+      content: '恢复回滚',
+      addedDate: '2026-08-10',
+    });
+    vi.spyOn(weeks, 'deleteHistoricalTask').mockRejectedValueOnce(
+      new Error('week write failed'),
+    );
+
+    await expect(
+      weekly.reopenHistoricalTask({
+        date: '2026-08-12',
+        locator: day.tasks[0]!.locator,
+      }),
+    ).rejects.toThrow('week write failed');
+    expect((await today.read()).snapshot.tasks).toEqual([]);
+    expect((await weeks.getDay('2026-08-12')).tasks[0]?.content).toBe('恢复回滚');
   });
 
   it('rejects today and future dates in history mode', async () => {

@@ -1,4 +1,4 @@
-import type { TodayTaskView } from '../../shared/domain';
+import type { AddedDateDisplay, TodayTaskView } from '../../shared/domain';
 import { TaskItem } from './TaskItem';
 
 const COLLAPSED_LIMIT = 3;
@@ -12,6 +12,7 @@ export function CompletedSection({
   onToggle,
   onEdit,
   onDelete,
+  addedDateDisplay = 'hover',
 }: {
   tasks: TodayTaskView[];
   expanded: boolean;
@@ -20,6 +21,7 @@ export function CompletedSection({
   onToggle: (locator: TodayTaskView['locator']) => void;
   onEdit: (task: TodayTaskView, content: string) => Promise<boolean> | boolean;
   onDelete: (locator: TodayTaskView['locator']) => void;
+  addedDateDisplay?: AddedDateDisplay;
 }) {
   const visibleTasks = expanded ? tasks : tasks.slice(0, COLLAPSED_LIMIT);
 
@@ -41,6 +43,8 @@ export function CompletedSection({
           {visibleTasks.map((task) => (
             <TaskItem
               completed
+              addedDate={task.addedDate}
+              addedDateDisplay={addedDateDisplay}
               completedAt={task.completedAt}
               content={task.content}
               disabled={disabled}

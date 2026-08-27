@@ -37,4 +37,25 @@ describe('todayParser', () => {
     expect(task?.kind === 'task' && task.content).toBe('联系 @alice');
     expect(parsed.warnings.some((item) => item.code === 'INVALID_TIME')).toBe(false);
   });
+
+  it('parses an optional added date before the completion time', () => {
+    const parsed = parseToday(
+      '# 2026-08-13\n- [ ] 待办 @添加:2026-08-10\n- [x] 完成 @添加:2026-08-11 @14:20\n',
+    );
+    const tasks = parsed.nodes.filter((node) => node.kind === 'task');
+    expect(tasks[0]).toMatchObject({ content: '待办', addedDate: '2026-08-10' });
+    expect(tasks[1]).toMatchObject({
+      content: '完成',
+      addedDate: '2026-08-11',
+      completedAt: '14:20',
+    });
+    expect(serializeToday(parsed)).toContain('@添加:2026-08-10');
+  });
+
+  it('keeps malformed added-date text in content and emits a warning', () => {
+    const parsed = parseToday('# 2026-08-13\n- [ ] 工作 @添加:2026-99-99\n');
+    const task = parsed.nodes.find((node) => node.kind === 'task');
+    expect(task?.kind === 'task' && task.content).toBe('工作 @添加:2026-99-99');
+    expect(parsed.warnings.map((warning) => warning.code)).toContain('INVALID_ADDED_DATE');
+  });
 });

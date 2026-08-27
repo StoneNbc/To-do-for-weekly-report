@@ -31,6 +31,23 @@ describe('noteReducer', () => {
     expect(saved.mutation).toBe('idle');
     expect(saved.notice).toBe('已保存');
   });
+
+  it('部分失败后刷新磁盘快照但保留原错误', () => {
+    const failed = noteReducer(createInitialNoteState('2026-08-13'), {
+      type: 'mutation-failure',
+      error: { code: 'IO_ERROR', message: '数据可能重复，请刷新检查' },
+    });
+    const refreshed = noteReducer(failed, {
+      type: 'refresh-after-failure',
+      snapshot: mockTodaySnapshot,
+    });
+
+    expect(refreshed.snapshot).toEqual(mockTodaySnapshot);
+    expect(refreshed.error).toEqual({
+      code: 'IO_ERROR',
+      message: '数据可能重复，请刷新检查',
+    });
+  });
 });
 
 describe('weeklyReducer', () => {

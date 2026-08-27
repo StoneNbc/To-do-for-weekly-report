@@ -33,11 +33,11 @@ export function AddTaskInput({
         </span>
         <input
           aria-describedby={error ? 'add-task-error' : undefined}
-          aria-label="添加今日任务"
+        aria-label="添加待办"
           className="min-w-0 flex-1 bg-transparent px-1 py-1.5 text-sm outline-none placeholder:text-stone-400"
           disabled={disabled}
           onChange={(event) => setValue(event.target.value)}
-          placeholder="添加今日任务…"
+          placeholder="添加待办…"
           value={value}
         />
         <button

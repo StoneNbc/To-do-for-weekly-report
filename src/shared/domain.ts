@@ -7,6 +7,7 @@
 export type IsoDate = string;
 export type LocalTime = string;
 export type FileRevision = string;
+export type AddedDateDisplay = 'hover' | 'always';
 
 /** 使用文件 revision 与零基行号定位任务，避免同名任务被误操作。 */
 export interface TaskLocator {
@@ -24,6 +25,7 @@ export interface ParseWarning {
     | 'INVALID_DATE'
     | 'ORPHAN_TASK'
     | 'INVALID_TIME'
+    | 'INVALID_ADDED_DATE'
     | 'DUPLICATE_HEADER';
   reason: string;
 }
@@ -32,6 +34,7 @@ export interface TodayTaskView {
   locator: TaskLocator;
   content: string;
   completed: boolean;
+  addedDate?: IsoDate;
   completedAt?: LocalTime;
 }
 
@@ -39,6 +42,7 @@ export interface HistoricalTaskView {
   locator: TaskLocator;
   date: IsoDate;
   content: string;
+  addedDate?: IsoDate;
   completedAt?: LocalTime;
 }
 
@@ -57,6 +61,13 @@ export interface DayRecordSnapshot {
   revision: FileRevision;
   tasks: HistoricalTaskView[];
   warnings: ParseWarning[];
+}
+
+/** 历史便利贴同时读取全局待办和所选日期的完成记录。 */
+export interface HistoryViewSnapshot {
+  date: IsoDate;
+  backlog: TodaySnapshot;
+  completed: DayRecordSnapshot;
 }
 
 export interface WeeklyTask {
@@ -174,6 +185,7 @@ export interface AppConfig {
   always_on_top: boolean;
   window_bounds: WindowBounds | null;
   completed_expanded: boolean;
+  added_date_display: AddedDateDisplay;
   note_color: string;
   note_opacity: number;
   /** 保留未知字段，使未来版本或用户手写配置不会在当前版本中被静默删除。 */
@@ -186,6 +198,7 @@ export interface SettingsSnapshot {
   noteOpacity: number;
   alwaysOnTop: boolean;
   completedExpanded: boolean;
+  addedDateDisplay: AddedDateDisplay;
   dataDirectory: string;
 }
 
@@ -194,6 +207,7 @@ export interface SettingsPatch {
   noteOpacity?: number | undefined;
   alwaysOnTop?: boolean | undefined;
   completedExpanded?: boolean | undefined;
+  addedDateDisplay?: AddedDateDisplay | undefined;
 }
 
 export interface AppearancePreview {

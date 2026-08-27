@@ -82,6 +82,7 @@ export class SettingsService {
       noteOpacity: config.note_opacity,
       alwaysOnTop: config.always_on_top,
       completedExpanded: config.completed_expanded,
+      addedDateDisplay: config.added_date_display,
       dataDirectory: this.#dataDirectory,
     };
   }
@@ -94,6 +95,8 @@ const toConfigPatch = (patch: SettingsPatch): ConfigPatch => {
   if (patch.alwaysOnTop !== undefined) configPatch.always_on_top = patch.alwaysOnTop;
   if (patch.completedExpanded !== undefined)
     configPatch.completed_expanded = patch.completedExpanded;
+  if (patch.addedDateDisplay !== undefined)
+    configPatch.added_date_display = patch.addedDateDisplay;
   return configPatch;
 };
 

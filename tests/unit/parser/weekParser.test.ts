@@ -28,4 +28,19 @@ describe('weekParser', () => {
     const task = parsed.nodes.find((node) => node.kind === 'archivedTask');
     expect(task?.kind === 'archivedTask' && task.date).toBe('2018-12-31');
   });
+
+  it('parses added dates with and without an accurate completion time', () => {
+    const parsed = parseWeek(
+      `${header}\n\n## 周一 08-10\n- 历史完成 @添加:2026-08-08\n- 正常完成 @添加:2026-08-09 @09:30\n`,
+      { isoYear: 2026, isoWeek: 33 },
+    );
+    const tasks = parsed.nodes.filter((node) => node.kind === 'archivedTask');
+    expect(tasks[0]).toMatchObject({ content: '历史完成', addedDate: '2026-08-08' });
+    expect(tasks[0]).not.toHaveProperty('completedAt');
+    expect(tasks[1]).toMatchObject({
+      content: '正常完成',
+      addedDate: '2026-08-09',
+      completedAt: '09:30',
+    });
+  });
 });

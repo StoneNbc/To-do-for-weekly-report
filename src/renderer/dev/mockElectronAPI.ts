@@ -9,6 +9,7 @@ import type {
   ReportSettingsPatch,
   ReportSettingsSnapshot,
   TodaySnapshot,
+  HistoryViewSnapshot,
   WeeklySnapshot,
 } from '../../shared/domain';
 import type { ApiResult, ExportReportResult } from '../../shared/results';
@@ -32,7 +33,7 @@ export const mockTodaySnapshot: TodaySnapshot = {
   currentDate: '2026-08-13',
   revision: 'today-r1',
   tasks: [
-    { locator: locator(1), content: '准备周会材料', completed: false },
+    { locator: locator(1), content: '准备周会材料', completed: false, addedDate: '2026-08-10' },
     { locator: locator(2), content: '回复客户邮件', completed: true, completedAt: '14:20' },
     { locator: locator(3), content: '重复记录', completed: true, completedAt: '09:30' },
     { locator: locator(4), content: '重复记录', completed: true, completedAt: '09:30' },
@@ -93,6 +94,7 @@ export function createMockElectronAPI(
     noteOpacity: 1,
     alwaysOnTop: true,
     completedExpanded: false,
+    addedDateDisplay: 'hover',
     dataDirectory: '/本机/悬浮便利贴/data',
   };
   let reportSettings: ReportSettingsSnapshot = {
@@ -143,6 +145,21 @@ export function createMockElectronAPI(
     }
     return null;
   };
+
+  const historyView = (date: string): HistoryViewSnapshot => ({
+    date,
+    backlog: {
+      ...clone(today),
+      tasks: today.tasks.filter(
+        (task) =>
+          !task.completed && (task.addedDate === undefined || task.addedDate.localeCompare(date) <= 0),
+      ),
+    },
+    completed:
+      date === history.date
+        ? clone(history)
+        : { date, revision: 'empty-week', tasks: [], warnings: [] },
+  });
 
   const api = {
     async healthCheck() {
@@ -203,34 +220,95 @@ export function createMockElectronAPI(
       },
     },
     history: {
-      async getDay(date: string) {
+      async getView(date: string) {
         await pause();
-        if (scenario === 'io-error') return failureForScenario<DayRecordSnapshot>()!;
-        return {
-          ok: true as const,
-          data:
-            date === history.date
-              ? clone(history)
-              : { date, revision: 'empty-week', tasks: [], warnings: [] },
-        };
+        if (scenario === 'io-error') return failureForScenario<HistoryViewSnapshot>()!;
+        return { ok: true as const, data: historyView(date) };
       },
-      async add(input: { date: string; content: string; completedAt?: string }) {
-        const failure = failureForScenario<DayRecordSnapshot>();
+      async addPending(input: { date: string; content: string }) {
+        const failure = failureForScenario<HistoryViewSnapshot>();
         if (failure) return failure;
-        const task = input.completedAt
-          ? {
+        today = nextTodaySnapshot([
+          ...today.tasks,
+          {
+            locator: locator(today.tasks.length + 1, today.revision),
+            content: input.content,
+            completed: false,
+            addedDate: input.date,
+          },
+        ]);
+        return { ok: true as const, data: historyView(input.date) };
+      },
+      async editPending(input: {
+        date: string;
+        locator: { line: number; revision: string };
+        content: string;
+      }) {
+        const failure = failureForScenario<HistoryViewSnapshot>();
+        if (failure) return failure;
+        today = nextTodaySnapshot(
+          today.tasks.map((task) =>
+            task.locator.line === input.locator.line ? { ...task, content: input.content } : task,
+          ),
+        );
+        return { ok: true as const, data: historyView(input.date) };
+      },
+      async deletePending(input: {
+        date: string;
+        locator: { line: number; revision: string };
+      }) {
+        const failure = failureForScenario<HistoryViewSnapshot>();
+        if (failure) return failure;
+        today = nextTodaySnapshot(
+          today.tasks.filter((task) => task.locator.line !== input.locator.line),
+        );
+        return { ok: true as const, data: historyView(input.date) };
+      },
+      async completePending(input: {
+        date: string;
+        locator: { line: number; revision: string };
+      }) {
+        const failure = failureForScenario<HistoryViewSnapshot>();
+        if (failure) return failure;
+        const task = today.tasks.find((candidate) => candidate.locator.line === input.locator.line)!;
+        today = nextTodaySnapshot(
+          today.tasks.filter((candidate) => candidate.locator.line !== input.locator.line),
+        );
+        history = nextHistorySnapshot(
+          [
+            ...history.tasks,
+            {
               locator: locator(history.tasks.length + 5, history.revision),
               date: input.date,
-              content: input.content,
-              completedAt: input.completedAt,
-            }
-          : {
-              locator: locator(history.tasks.length + 5, history.revision),
-              date: input.date,
-              content: input.content,
-            };
-        history = nextHistorySnapshot([...history.tasks, task], input.date);
-        return { ok: true as const, data: clone(history) };
+              content: task.content,
+              ...(task.addedDate ? { addedDate: task.addedDate } : {}),
+            },
+          ],
+          input.date,
+        );
+        return { ok: true as const, data: historyView(input.date) };
+      },
+      async reopenCompleted(input: {
+        date: string;
+        locator: { line: number; revision: string };
+      }) {
+        const failure = failureForScenario<HistoryViewSnapshot>();
+        if (failure) return failure;
+        const task = history.tasks.find((candidate) => candidate.locator.line === input.locator.line)!;
+        history = nextHistorySnapshot(
+          history.tasks.filter((candidate) => candidate.locator.line !== input.locator.line),
+          input.date,
+        );
+        today = nextTodaySnapshot([
+          ...today.tasks,
+          {
+            locator: locator(today.tasks.length + 1, today.revision),
+            content: task.content,
+            completed: false,
+            ...(task.addedDate ? { addedDate: task.addedDate } : {}),
+          },
+        ]);
+        return { ok: true as const, data: historyView(input.date) };
       },
       async edit(input: {
         date: string;
@@ -238,7 +316,7 @@ export function createMockElectronAPI(
         content: string;
         completedAt?: string;
       }) {
-        const failure = failureForScenario<DayRecordSnapshot>();
+        const failure = failureForScenario<HistoryViewSnapshot>();
         if (failure) return failure;
         history = nextHistorySnapshot(
           history.tasks.map((task) =>
@@ -249,15 +327,15 @@ export function createMockElectronAPI(
               : task,
           ),
         );
-        return { ok: true as const, data: clone(history) };
+        return { ok: true as const, data: historyView(input.date) };
       },
       async delete(input: { date: string; locator: { line: number; revision: string } }) {
-        const failure = failureForScenario<DayRecordSnapshot>();
+        const failure = failureForScenario<HistoryViewSnapshot>();
         if (failure) return failure;
         history = nextHistorySnapshot(
           history.tasks.filter((task) => task.locator.line !== input.locator.line),
         );
-        return { ok: true as const, data: clone(history) };
+        return { ok: true as const, data: historyView(input.date) };
       },
     },
     week: {
@@ -342,6 +420,9 @@ export function createMockElectronAPI(
           ...(input.alwaysOnTop !== undefined ? { alwaysOnTop: input.alwaysOnTop } : {}),
           ...(input.completedExpanded !== undefined
             ? { completedExpanded: input.completedExpanded }
+            : {}),
+          ...(input.addedDateDisplay !== undefined
+            ? { addedDateDisplay: input.addedDateDisplay }
             : {}),
         };
         settingsListeners.forEach((listener) => listener(clone(settings)));

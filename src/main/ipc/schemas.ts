@@ -72,5 +72,6 @@ export const settingsPatchSchema = appearancePreviewSchema
   .safeExtend({
     alwaysOnTop: z.boolean().optional(),
     completedExpanded: z.boolean().optional(),
+    addedDateDisplay: z.enum(['hover', 'always']).optional(),
   })
   .refine((value) => Object.keys(value).length > 0, { message: '设置修改不能为空' });

@@ -8,6 +8,7 @@ export const DEFAULT_NOTE_COLOR = '#FFF8E7';
 export const DEFAULT_NOTE_OPACITY = 1;
 export const MIN_NOTE_OPACITY = 0.6;
 export const NOTE_OPACITY_STEP = 0.05;
+export const DEFAULT_ADDED_DATE_DISPLAY = 'hover' as const;
 
 export const DEFAULT_REPORT_TEMPLATE = `=======================
 周报 | {{iso_year}}年第{{iso_week}}周
@@ -75,6 +76,7 @@ export const DEFAULT_CONFIG = {
   always_on_top: true,
   window_bounds: null,
   completed_expanded: false,
+  added_date_display: DEFAULT_ADDED_DATE_DISPLAY,
   note_color: DEFAULT_NOTE_COLOR,
   note_opacity: DEFAULT_NOTE_OPACITY,
 } as const;

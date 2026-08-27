@@ -40,6 +40,10 @@ export interface TodayReadResult {
   snapshot: TodaySnapshot;
 }
 
+export interface TodayAddResult extends TodayReadResult {
+  insertedLocator: TaskLocator;
+}
+
 export interface TodayTaskChanges {
   content?: string;
   completed?: boolean;
@@ -70,17 +74,23 @@ export class TodayRepository {
     return this.fromFile(file);
   }
 
-  async addTask(content: string, expectedRevision: string | null = null): Promise<TodayReadResult> {
+  async addTask(
+    content: string,
+    expectedRevision: string | null = null,
+    addedDate?: string,
+  ): Promise<TodayAddResult> {
     const normalized = assertValidTaskContent(content);
+    if (addedDate !== undefined) assertValidIsoDate(addedDate);
     const result = await this.store.update(this.path, expectedRevision, (file) => {
       const document = parseToday(file.text, { file: this.path });
       const newNode: TodayTaskNode = {
         kind: 'task',
-        raw: formatTodayTask(normalized, false),
+        raw: formatTodayTask(normalized, false, addedDate),
         line: 0,
         completed: false,
         content: normalized,
       };
+      if (addedDate !== undefined) newNode.addedDate = addedDate;
       // 新任务紧跟现有任务区，未知行和用户注释的相对顺序保持不变。
       const lastTask = document.nodes.reduce(
         (last, node, index) => (node.kind === 'task' ? index : last),
@@ -91,9 +101,12 @@ export class TodayRepository {
         lastTask >= 0 ? lastTask + 1 : header >= 0 ? header + 1 : document.nodes.length;
       document.nodes.splice(insertion, 0, newNode);
       reindexTodayNodes(document.nodes);
-      return { text: serializeToday(document), result: undefined };
+      return { text: serializeToday(document), result: newNode.line };
     });
-    return this.fromFile(result.snapshot);
+    return {
+      ...this.fromFile(result.snapshot),
+      insertedLocator: { line: result.result, revision: result.snapshot.revision },
+    };
   }
 
   async updateTask(locator: TaskLocator, changes: TodayTaskChanges): Promise<TodayReadResult> {
@@ -116,7 +129,7 @@ export class TodayRepository {
       node.completed = completed;
       if (completedAt === undefined) delete node.completedAt;
       else node.completedAt = completedAt;
-      node.raw = formatTodayTask(content, completed, completedAt);
+      node.raw = formatTodayTask(content, completed, node.addedDate, completedAt);
       return { text: serializeToday(document), result: undefined };
     });
     return this.fromFile(result.snapshot);
@@ -164,6 +177,7 @@ export class TodayRepository {
           content: node.content,
           completed: node.completed,
         };
+        if (node.addedDate !== undefined) task.addedDate = node.addedDate;
         if (node.completedAt !== undefined) task.completedAt = node.completedAt;
         return task;
       });

@@ -126,6 +126,7 @@ export type ArchiveClock = Clock;
 
 const toArchivedTask = (task: TodayTaskView): ArchivedTaskInput => {
   const archived: ArchivedTaskInput = { content: task.content };
+  if (task.addedDate !== undefined) archived.addedDate = task.addedDate;
   if (task.completedAt !== undefined) archived.completedAt = task.completedAt;
   return archived;
 };

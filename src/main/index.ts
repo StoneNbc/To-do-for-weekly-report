@@ -85,7 +85,13 @@ if (lifecycle.acquireSingleInstance()) {
       const weekRepository = new WeekRepository(dataPaths.weeksDirectory, textFileStore);
       const archiveService = new ArchiveService(todayRepository, weekRepository);
       const taskService = new TaskService(todayRepository, archiveService);
-      const weeklyService = new WeeklyService(weekRepository, todayRepository);
+      const weeklyService = new WeeklyService(
+        weekRepository,
+        todayRepository,
+        undefined,
+        archiveService,
+        logger,
+      );
       const recordTemplates = new ReportTemplateService(dataPaths.reportTemplateFile);
       const remoteTemplates = new ReportTemplateService(
         dataPaths.remoteReportTemplateFile,

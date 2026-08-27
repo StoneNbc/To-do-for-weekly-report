@@ -39,6 +39,7 @@ const knownConfigSchema = z.object({
   always_on_top: z.boolean(),
   window_bounds: windowBoundsSchema.nullable(),
   completed_expanded: z.boolean(),
+  added_date_display: z.enum(['hover', 'always']),
   note_color: z.string().transform(normalizeNoteColor).refine(isValidNoteColor),
   note_opacity: z.number().refine(isValidNoteOpacity),
 });
@@ -55,6 +56,7 @@ export type ConfigPatch = Partial<
     | 'always_on_top'
     | 'window_bounds'
     | 'completed_expanded'
+    | 'added_date_display'
     | 'note_color'
     | 'note_opacity'
   >
@@ -275,6 +277,10 @@ const parsePatch = (patch: ConfigPatch): ConfigPatch => {
   if ('always_on_top' in patch) parsedPatch.always_on_top = z.boolean().parse(patch.always_on_top);
   if ('completed_expanded' in patch)
     parsedPatch.completed_expanded = z.boolean().parse(patch.completed_expanded);
+  if ('added_date_display' in patch)
+    parsedPatch.added_date_display = knownConfigSchema.shape.added_date_display.parse(
+      patch.added_date_display,
+    );
   if ('window_bounds' in patch)
     parsedPatch.window_bounds = windowBoundsSchema.nullable().parse(patch.window_bounds);
   if ('note_color' in patch)

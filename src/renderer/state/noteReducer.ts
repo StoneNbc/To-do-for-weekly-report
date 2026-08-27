@@ -1,7 +1,7 @@
-import type { DayRecordSnapshot, TodaySnapshot } from '../../shared/domain';
+import type { HistoryViewSnapshot, TodaySnapshot } from '../../shared/domain';
 import type { ApiError } from '../../shared/results';
 
-export type NoteSnapshot = TodaySnapshot | DayRecordSnapshot;
+export type NoteSnapshot = TodaySnapshot | HistoryViewSnapshot;
 
 /** 今日和历史共用的页面状态；磁盘数据只保存在 snapshot，不另建任务副本。 */
 export interface NoteState {
@@ -22,6 +22,7 @@ export type NoteAction =
   | { type: 'mutation-start' }
   | { type: 'mutation-success'; snapshot: NoteSnapshot; notice?: string | undefined }
   | { type: 'mutation-failure'; error: ApiError }
+  | { type: 'refresh-after-failure'; snapshot: NoteSnapshot }
   | { type: 'toggle-completed' }
   | { type: 'set-completed-expanded'; expanded: boolean }
   | { type: 'set-notice'; notice: string | null }
@@ -68,6 +69,9 @@ export function noteReducer(state: NoteState, action: NoteAction): NoteState {
       };
     case 'mutation-failure':
       return { ...state, mutation: 'idle', error: action.error };
+    case 'refresh-after-failure':
+      // 跨文件操作部分失败后以磁盘快照刷新视图，但保留原错误提醒用户检查数据。
+      return { ...state, snapshot: action.snapshot, mutation: 'idle' };
     case 'toggle-completed':
       return { ...state, completedExpanded: !state.completedExpanded };
     case 'set-completed-expanded':

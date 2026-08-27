@@ -58,6 +58,11 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /保持置顶/ }));
     await waitFor(() => expect(update).toHaveBeenCalledWith({ alwaysOnTop: false }));
 
+    fireEvent.change(screen.getByRole('combobox', { name: '添加日期显示方式' }), {
+      target: { value: 'always' },
+    });
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ addedDateDisplay: 'always' }));
+
     fireEvent.click(screen.getByRole('button', { name: '复制路径' }));
     await waitFor(() => expect(copyPath).toHaveBeenCalled());
     fireEvent.click(screen.getByRole('button', { name: '打开日志文件夹' }));

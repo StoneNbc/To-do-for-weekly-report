@@ -40,6 +40,7 @@ describe('SettingsService', () => {
       noteOpacity: 1,
       alwaysOnTop: false,
       completedExpanded: false,
+      addedDateDisplay: 'hover',
       dataDirectory: '/safe/data',
     });
     expect(runtime.applySettings).toHaveBeenCalledWith(snapshot);

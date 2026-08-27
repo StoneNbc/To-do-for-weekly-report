@@ -19,6 +19,7 @@ const snapshot = {
   noteOpacity: 1,
   alwaysOnTop: true,
   completedExpanded: false,
+  addedDateDisplay: 'hover' as const,
   dataDirectory: '/safe/data',
 };
 

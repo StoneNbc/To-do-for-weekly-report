@@ -8,6 +8,8 @@ const HEADER_RE = /^# (\d{4}-\d{2}-\d{2})$/;
 const TASK_RE = /^- \[([ xX])\] (.+)$/;
 const VALID_TRAILING_TIME_RE = /\s@([0-2]\d:[0-5]\d)$/;
 const TIME_LIKE_SUFFIX_RE = /\s@(\d{2}:\d{2})$/;
+const VALID_ADDED_DATE_RE = /\s@添加:(\d{4}-\d{2}-\d{2})$/;
+const ADDED_DATE_LIKE_RE = /\s@添加:(\S+)$/;
 
 interface TodayNodeBase {
   raw: string;
@@ -23,6 +25,7 @@ export interface TodayTaskNode extends TodayNodeBase {
   kind: 'task';
   completed: boolean;
   content: string;
+  addedDate?: string;
   completedAt?: string;
 }
 
@@ -114,7 +117,20 @@ export const parseToday = (text: string, options: ParseTodayOptions = {}): Today
         );
       }
 
+      let addedDate: string | undefined;
+      const added = VALID_ADDED_DATE_RE.exec(content);
+      const addedLike = ADDED_DATE_LIKE_RE.exec(content);
+      if (added && isValidLocalDate(added[1] ?? '')) {
+        addedDate = added[1];
+        content = content.slice(0, added.index);
+      } else if (addedLike) {
+        warnings.push(
+          warning(file, line, 'INVALID_ADDED_DATE', `无效的添加日期：${addedLike[1]}`),
+        );
+      }
+
       const node: TodayTaskNode = { kind: 'task', raw, line, completed, content };
+      if (addedDate !== undefined) node.addedDate = addedDate;
       if (completedAt !== undefined) node.completedAt = completedAt;
       nodes.push(node);
       return;
@@ -143,8 +159,10 @@ export const parseToday = (text: string, options: ParseTodayOptions = {}): Today
 export const formatTodayTask = (
   content: string,
   completed: boolean,
+  addedDate?: string,
   completedAt?: string,
-): string => `- [${completed ? 'x' : ' '}] ${content}${completedAt ? ` @${completedAt}` : ''}`;
+): string =>
+  `- [${completed ? 'x' : ' '}] ${content}${addedDate ? ` @添加:${addedDate}` : ''}${completedAt ? ` @${completedAt}` : ''}`;
 
 export const serializeToday = (document: TodayDocument): string =>
   // raw 是序列化的事实来源，确保解析后未修改的文本逐行保真。

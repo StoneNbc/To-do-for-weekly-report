@@ -18,6 +18,7 @@
   "always_on_top": true,
   "window_bounds": null,
   "completed_expanded": false,
+  "added_date_display": "hover",
   "note_color": "#FFF8E7",
   "note_opacity": 1
 }

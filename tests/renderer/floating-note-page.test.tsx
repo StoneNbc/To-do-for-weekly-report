@@ -25,7 +25,7 @@ describe('FloatingNotePage', () => {
   it('opens the settings window from the enabled note menu', async () => {
     const controller = renderPage();
     const openSettings = vi.spyOn(controller.api.window, 'openSettings');
-    await screen.findByRole('list', { name: '今日待办' });
+    await screen.findByRole('list', { name: '待完成事项' });
 
     fireEvent.click(screen.getByRole('button', { name: '打开便利贴菜单' }));
     fireEvent.click(screen.getByRole('menuitem', { name: '设置' }));
@@ -35,9 +35,9 @@ describe('FloatingNotePage', () => {
   it('按今日待办与已完成分区展示，并保留完全相同的两条任务', async () => {
     renderPage();
 
-    expect(await screen.findByRole('list', { name: '今日待办' })).toBeInTheDocument();
+    expect(await screen.findByRole('list', { name: '待完成事项' })).toBeInTheDocument();
     expect(
-      within(screen.getByRole('list', { name: '今日待办' })).getByText('准备周会材料'),
+      within(screen.getByRole('list', { name: '待完成事项' })).getByText('准备周会材料'),
     ).toBeInTheDocument();
     expect(screen.getAllByText('重复记录')).toHaveLength(2);
     expect(screen.getByRole('button', { name: /已完成（5）/ })).toHaveAttribute(
@@ -49,7 +49,7 @@ describe('FloatingNotePage', () => {
   it('添加任务后使用 API 返回快照更新页面', async () => {
     const controller = renderPage();
     const add = vi.spyOn(controller.api.today, 'add');
-    const input = await screen.findByRole('textbox', { name: '添加今日任务' });
+    const input = await screen.findByRole('textbox', { name: '添加待办' });
     fireEvent.change(input, { target: { value: '  新增本地任务  ' } });
     fireEvent.click(screen.getByRole('button', { name: '添加任务' }));
 
@@ -63,7 +63,7 @@ describe('FloatingNotePage', () => {
     const toggle = vi.spyOn(controller.api.today, 'toggle');
     const edit = vi.spyOn(controller.api.today, 'edit');
     const remove = vi.spyOn(controller.api.today, 'delete');
-    await screen.findByRole('list', { name: '今日待办' });
+    await screen.findByRole('list', { name: '待完成事项' });
 
     fireEvent.click(screen.getByRole('checkbox', { name: '完成任务：准备周会材料' }));
     await waitFor(() => expect(toggle).toHaveBeenCalledWith({ line: 1, revision: 'today-r1' }));
@@ -92,8 +92,8 @@ describe('FloatingNotePage', () => {
   it('变更成功后抑制一次自身 app-write watcher 回声', async () => {
     const controller = renderPage();
     const getToday = vi.spyOn(controller.api.today, 'get');
-    await screen.findByRole('list', { name: '今日待办' });
-    fireEvent.change(screen.getByRole('textbox', { name: '添加今日任务' }), {
+    await screen.findByRole('list', { name: '待完成事项' });
+    fireEvent.change(screen.getByRole('textbox', { name: '添加待办' }), {
       target: { value: '验证 watcher 回声' },
     });
     fireEvent.click(screen.getByRole('button', { name: '添加任务' }));
@@ -105,39 +105,41 @@ describe('FloatingNotePage', () => {
     expect(getToday).toHaveBeenCalledTimes(callsAfterMutation);
   });
 
-  it('历史模式有明确标识和补录入口，不出现未完成任务语义', async () => {
+  it('历史模式显示全局待办、完成记录和普通新增入口', async () => {
     renderPage();
-    await screen.findByRole('list', { name: '今日待办' });
+    await screen.findByRole('list', { name: '待完成事项' });
     fireEvent.click(screen.getByRole('button', { name: '查看前一天' }));
 
     expect(await screen.findByRole('status', { name: '当前正在查看历史记录' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '返回今天' })).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: '补录已完成事项' })).toBeInTheDocument();
-    expect(screen.queryByRole('textbox', { name: '添加今日任务' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: '添加待办' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: '完成任务：准备周会材料' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: '撤销完成：完成界面原型' })).toBeInTheDocument();
   });
 
-  it('历史补录、带时间编辑和删除使用所选日期与 locator', async () => {
+  it('历史新增进入全局待办，历史记录仍支持带时间编辑和永久删除', async () => {
     const controller = renderPage();
-    const add = vi.spyOn(controller.api.history, 'add');
+    const add = vi.spyOn(controller.api.history, 'addPending');
     const edit = vi.spyOn(controller.api.history, 'edit');
     const remove = vi.spyOn(controller.api.history, 'delete');
-    await screen.findByRole('list', { name: '今日待办' });
+    await screen.findByRole('list', { name: '待完成事项' });
     fireEvent.click(screen.getByRole('button', { name: '查看前一天' }));
     await screen.findByRole('list', { name: '历史完成记录' });
 
-    fireEvent.change(screen.getByRole('textbox', { name: '补录已完成事项' }), {
-      target: { value: '补录昨日评审' },
+    fireEvent.change(screen.getByRole('textbox', { name: '添加待办' }), {
+      target: { value: '今天录入的新待办' },
     });
-    fireEvent.change(screen.getByLabelText('完成时间（可选）'), { target: { value: '20:15' } });
-    fireEvent.click(screen.getByRole('button', { name: '补录完成事项' }));
+    fireEvent.click(screen.getByRole('button', { name: '添加任务' }));
     await waitFor(() =>
-      expect(add).toHaveBeenCalledWith({
-        date: '2026-08-12',
-        content: '补录昨日评审',
-        completedAt: '20:15',
-      }),
+      expect(add).toHaveBeenCalledWith({ date: '2026-08-12', content: '今天录入的新待办' }),
     );
+    expect(screen.getByText('今天录入的新待办')).toBeInTheDocument();
+    expect(screen.getByText('已添加到全局待办')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '返回今天' }));
+    expect(await screen.findByText('今天录入的新待办')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '查看前一天' }));
+    await screen.findByRole('list', { name: '历史完成记录' });
 
     fireEvent.keyDown(screen.getByRole('button', { name: '任务内容：完成界面原型' }), {
       key: 'F2',
@@ -166,6 +168,32 @@ describe('FloatingNotePage', () => {
     );
   });
 
+  it('可在历史日期完成待办并撤销历史完成', async () => {
+    const controller = renderPage();
+    const complete = vi.spyOn(controller.api.history, 'completePending');
+    const reopen = vi.spyOn(controller.api.history, 'reopenCompleted');
+    await screen.findByRole('list', { name: '待完成事项' });
+    fireEvent.click(screen.getByRole('button', { name: '查看前一天' }));
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: '完成任务：准备周会材料' }));
+    await waitFor(() =>
+      expect(complete).toHaveBeenCalledWith({
+        date: '2026-08-12',
+        locator: expect.objectContaining({ line: 1 }),
+      }),
+    );
+    expect(screen.queryByRole('checkbox', { name: '完成任务：准备周会材料' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '撤销完成：完成界面原型' }));
+    await waitFor(() =>
+      expect(reopen).toHaveBeenCalledWith({
+        date: '2026-08-12',
+        locator: expect.objectContaining({ line: 4 }),
+      }),
+    );
+    expect(await screen.findByRole('checkbox', { name: '完成任务：完成界面原型' })).toBeInTheDocument();
+  });
+
   it('FILE_CHANGED 时载入最新快照并提示用户重新操作', async () => {
     renderPage('file-changed');
     const checkbox = await screen.findByRole('checkbox', { name: '完成任务：准备周会材料' });
@@ -184,10 +212,54 @@ describe('FloatingNotePage', () => {
     expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument();
   });
 
+  it('历史跨文件 IO_ERROR 后刷新组合快照并保留部分失败提示', async () => {
+    const controller = renderPage();
+    await screen.findByRole('list', { name: '待完成事项' });
+    fireEvent.click(screen.getByRole('button', { name: '查看前一天' }));
+    await screen.findByRole('list', { name: '历史完成记录' });
+
+    vi.spyOn(controller.api.history, 'completePending').mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'IO_ERROR', message: '数据可能重复，请刷新检查' },
+    });
+    const getView = vi.spyOn(controller.api.history, 'getView').mockResolvedValueOnce({
+      ok: true,
+      data: {
+        date: '2026-08-12',
+        backlog: {
+          fileDate: '2026-08-13',
+          currentDate: '2026-08-13',
+          revision: 'today-after-partial-failure',
+          tasks: [
+            {
+              locator: { line: 7, revision: 'today-after-partial-failure' },
+              content: '磁盘刷新后的待办',
+              completed: false,
+              addedDate: '2026-08-10',
+            },
+          ],
+          warnings: [],
+        },
+        completed: {
+          date: '2026-08-12',
+          revision: 'week-after-partial-failure',
+          tasks: [],
+          warnings: [],
+        },
+      },
+    });
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '完成任务：准备周会材料' }));
+
+    expect(await screen.findByText('磁盘刷新后的待办')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('数据可能重复，请刷新检查');
+    expect(getView).toHaveBeenCalledWith('2026-08-12');
+  });
+
   it('FILE_CHANGED 之外也可响应外部文件变化事件', async () => {
     const controller = renderPage();
     const getToday = vi.spyOn(controller.api.today, 'get');
-    await screen.findByRole('list', { name: '今日待办' });
+    await screen.findByRole('list', { name: '待完成事项' });
     const initialCalls = getToday.mock.calls.length;
     controller.emit({ scope: 'week', isoYear: 2026, isoWeek: 33, reason: 'external-edit' });
     await Promise.resolve();
@@ -210,7 +282,7 @@ describe('FloatingNotePage', () => {
     });
 
     release?.();
-    await screen.findByRole('list', { name: '今日待办' });
+    await screen.findByRole('list', { name: '待完成事项' });
     getToday.mockClear();
     for (let index = 0; index < 8; index += 1) {
       controller.emit({ scope: 'today', reason: 'external-edit' });
@@ -226,7 +298,7 @@ describe('FloatingNotePage', () => {
       'generateCurrentWeekReport',
     );
     const exportReport = vi.spyOn(controller.api.report, 'export');
-    await screen.findByRole('list', { name: '今日待办' });
+    await screen.findByRole('list', { name: '待完成事项' });
     const menuButton = screen.getByRole('button', { name: '打开便利贴菜单' });
     expect(menuButton).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(menuButton);
@@ -243,7 +315,7 @@ describe('FloatingNotePage', () => {
 
   it('点击菜单外空白区域或按 Esc 会关闭菜单，点击菜单内部不会误关闭', async () => {
     renderPage();
-    await screen.findByRole('list', { name: '今日待办' });
+    await screen.findByRole('list', { name: '待完成事项' });
 
     fireEvent.click(screen.getByRole('button', { name: '打开便利贴菜单' }));
     const menu = screen.getByRole('menu');
@@ -267,7 +339,7 @@ describe('FloatingNotePage', () => {
     controller.api.window.generateCurrentWeekReport = vi
       .fn()
       .mockRejectedValue(new Error('无法打开周记窗口'));
-    await screen.findByRole('list', { name: '今日待办' });
+    await screen.findByRole('list', { name: '待完成事项' });
     fireEvent.click(screen.getByRole('button', { name: '打开便利贴菜单' }));
     fireEvent.click(screen.getByRole('menuitem', { name: '导出本周周报' }));
 
@@ -280,7 +352,7 @@ describe('FloatingNotePage', () => {
         <FloatingNotePage />
       </ElectronAPIProvider>,
     );
-    await screen.findByRole('list', { name: '今日待办' });
+    await screen.findByRole('list', { name: '待完成事项' });
     expect(container.firstElementChild).toHaveClass('min-h-[280px]', 'overflow-hidden');
     expect(screen.getByRole('button', { name: '查看前一天' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '查看后一天' })).toBeInTheDocument();

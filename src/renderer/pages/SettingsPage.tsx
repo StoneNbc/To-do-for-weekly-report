@@ -74,6 +74,9 @@ export function SettingsPage() {
         ...(patch.completedExpanded !== undefined
           ? { completedExpanded: patch.completedExpanded }
           : {}),
+        ...(patch.addedDateDisplay !== undefined
+          ? { addedDateDisplay: patch.addedDateDisplay }
+          : {}),
       });
       const result = await api.settings.update(patch);
       savingRef.current = false;
@@ -297,6 +300,29 @@ export function SettingsPage() {
             label="展开已完成区域"
             onChange={(checked) => void commit({ completedExpanded: checked })}
           />
+          <div className="mt-4 flex items-center justify-between gap-4 border-t border-stone-200 pt-4">
+            <div>
+              <label className="text-sm font-medium" htmlFor="added-date-display">
+                添加日期显示
+              </label>
+              <p className="mt-1 text-xs text-stone-500">
+                可常驻显示，或仅在鼠标悬停和键盘聚焦时显示。
+              </p>
+            </div>
+            <select
+              aria-label="添加日期显示方式"
+              className="rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-amber-600"
+              disabled={saving}
+              id="added-date-display"
+              onChange={(event) =>
+                void commit({ addedDateDisplay: event.target.value as 'hover' | 'always' })
+              }
+              value={settings.addedDateDisplay}
+            >
+              <option value="hover">悬停时显示</option>
+              <option value="always">始终显示</option>
+            </select>
+          </div>
         </SettingsCard>
 
         <ReportGenerationSettings />
