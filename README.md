@@ -54,18 +54,18 @@
 
 核心功能已完成，项目目前适合源码运行、继续开发和本地构建。
 
-| 项目                               | 状态                                  |
-| ---------------------------------- | ------------------------------------- |
-| 今日任务、历史补录、周记、归档     | ✅ 已实现                             |
-| 本地模板与 TXT 周报导出            | ✅ 已实现                             |
-| 自定义模板、提示词和保存前预览     | ✅ 已实现                             |
-| 远程 LLM 配置、连接测试和周报生成  | ✅ 已实现                             |
-| macOS Apple Silicon 本地构建       | ✅ 已完成冒烟验证                     |
-| Windows 安装包                     | 🧪 已配置 NSIS，尚待 Windows 实机验收 |
+| 项目                              | 状态                                  |
+| --------------------------------- | ------------------------------------- |
+| 今日任务、历史补录、周记、归档    | ✅ 已实现                             |
+| 本地模板与 TXT 周报导出           | ✅ 已实现                             |
+| 自定义模板、提示词和保存前预览    | ✅ 已实现                             |
+| 远程 LLM 配置、连接测试和周报生成 | ✅ 已实现                             |
+| macOS Apple Silicon 本地构建      | ✅ 已完成冒烟验证                     |
+| Windows 安装包                    | 🧪 已配置 NSIS，尚待 Windows 实机验收 |
 | 正式应用图标和托盘图标            | ✅ 已接入打包与运行时                 |
-| macOS 签名和公证                   | ⏳ 尚未配置                           |
-| 远程授权绑定 origin 与声明版本     | ⏳ 待完善                             |
-| 多文件设置保存的事务一致性         | ⏳ 待完善                             |
+| macOS 签名和公证                  | ⏳ 尚未配置                           |
+| 远程授权绑定 origin 与声明版本    | ⏳ 待完善                             |
+| 多文件设置保存的事务一致性        | ⏳ 待完善                             |
 
 > 当前 macOS 构建未进行 Apple Developer ID 签名和公证，首次打开时可能出现系统安全提示。正式发布安装包前仍需完成签名和公证。
 
@@ -233,6 +233,8 @@ tests/
 ├── integration/
 └── renderer/
 
+build/                   # 打包与运行时应用图标、1x/2x 托盘图标
+resources/               # 透明主图标和默认配置等静态资源
 documents/               # PRD、开发设计、交接与协作说明
 ```
 
@@ -270,6 +272,13 @@ pnpm dist
 
 - macOS：DMG 与 ZIP。
 - Windows：NSIS 安装包。
+- 应用、Dock、窗口与安装包使用 `build/icon.png`。
+- 托盘使用 `build/tray-icon.png` 和 `build/tray-icon@2x.png`。
+
+图标以 `resources/app-icon-master.png` 作为 1024 × 1024 RGBA 主资源。开发模式从
+`build/` 读取图标；打包时 electron-builder 将三张运行时图片复制到
+`process.resourcesPath`，并根据 `build/icon.png` 生成平台安装包图标。替换图标后需要
+完全退出已经运行的单实例应用，再重新执行 `pnpm dev`，否则旧进程仍会保留原 Dock 图标。
 
 构建 Windows 安装包建议在 Windows 环境或对应 CI Runner 中执行并完成实机验收。
 
@@ -277,13 +286,13 @@ pnpm dist
 
 Release Assets 的用途：
 
-| 产物 | 用途 |
-| --- | --- |
-| macOS `.dmg` | Mac 用户的首选安装镜像，打开后将应用拖入“应用程序” |
-| macOS `.zip` | Mac 应用的备用压缩分发格式 |
-| Windows `.exe` | Windows x64 NSIS 安装程序 |
-| `SHA256SUMS-macos.txt` | 校验 macOS DMG、ZIP 的完整性 |
-| `SHA256SUMS-windows.txt` | 校验 Windows EXE 的完整性 |
+| 产物                     | 用途                                               |
+| ------------------------ | -------------------------------------------------- |
+| macOS `.dmg`             | Mac 用户的首选安装镜像，打开后将应用拖入“应用程序” |
+| macOS `.zip`             | Mac 应用的备用压缩分发格式                         |
+| Windows `.exe`           | Windows x64 NSIS 安装程序                          |
+| `SHA256SUMS-macos.txt`   | 校验 macOS DMG、ZIP 的完整性                       |
+| `SHA256SUMS-windows.txt` | 校验 Windows EXE 的完整性                          |
 
 发布新版本时，先让 `package.json` 版本号与标签一致，再推送标签：
 
