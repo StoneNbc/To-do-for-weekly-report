@@ -1,5 +1,15 @@
-import { app, dialog, ipcMain, powerMonitor, safeStorage, session, shell } from 'electron';
+import {
+  app,
+  dialog,
+  ipcMain,
+  nativeImage,
+  powerMonitor,
+  safeStorage,
+  session,
+  shell,
+} from 'electron';
 import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { AppLifecycle } from './appLifecycle';
 import { IPC } from './ipc/channels';
 import { LocalFileLogger } from './logging/logger';
@@ -111,9 +121,22 @@ if (lifecycle.acquireSingleInstance()) {
         credentials,
       });
 
+      const appIconPath = app.isPackaged
+        ? join(process.resourcesPath, 'app-icon.png')
+        : join(process.cwd(), 'build', 'icon.png');
+      const trayIconPath = app.isPackaged
+        ? join(process.resourcesPath, 'tray-icon.png')
+        : join(process.cwd(), 'build', 'tray-icon.png');
+      if (process.platform === 'darwin') {
+        const dockIcon = nativeImage.createFromPath(appIconPath);
+        if (dockIcon.isEmpty()) logger.warn('Dock icon could not be loaded', { appIconPath });
+        else app.dock?.setIcon(dockIcon);
+      }
+
       windowManager = new WindowManager({
         config,
         logger,
+        appIconPath,
         ...windowPaths,
         ...(process.env.VITE_DEV_SERVER_URL
           ? { rendererDevUrl: process.env.VITE_DEV_SERVER_URL }
@@ -205,6 +228,7 @@ if (lifecycle.acquireSingleInstance()) {
         menuFactory,
         onToggleNote: commands.toggleNote,
         logger,
+        iconPath: trayIconPath,
       });
 
       // 所有 IPC handler 在 Renderer 加载前完成注册，避免首屏调用落入未注册通道。

@@ -20,6 +20,7 @@ export interface WindowManagerOptions {
   preloadPath: string;
   rendererHtmlPath: string;
   rendererDevUrl?: string;
+  appIconPath?: string;
   isQuitting: () => boolean;
 }
 
@@ -82,6 +83,7 @@ export class WindowManager {
       minWidth: MIN_NOTE_WIDTH,
       minHeight: MIN_NOTE_HEIGHT,
       title: '悬浮便利贴',
+      ...(this.#options.appIconPath ? { icon: this.#options.appIconPath } : {}),
       frame: false,
       transparent: false,
       resizable: true,
@@ -137,6 +139,7 @@ export class WindowManager {
       minWidth: 640,
       minHeight: 480,
       title: '周记',
+      ...(this.#options.appIconPath ? { icon: this.#options.appIconPath } : {}),
       show: false,
       webPreferences: {
         preload: this.#options.preloadPath,
@@ -180,6 +183,7 @@ export class WindowManager {
       minWidth: 480,
       minHeight: 440,
       title: '设置',
+      ...(this.#options.appIconPath ? { icon: this.#options.appIconPath } : {}),
       show: false,
       webPreferences: {
         preload: this.#options.preloadPath,

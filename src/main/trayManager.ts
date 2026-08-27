@@ -2,7 +2,7 @@ import { nativeImage, Tray } from 'electron';
 import type { AppLogger } from './logging/logger';
 import type { MenuFactory } from './menuFactory';
 
-// 正式图标尚未提供时使用内嵌占位图，保证开发构建和托盘功能可用。
+// 图标文件损坏或缺失时使用内嵌占位图，保证应用仍能进入托盘。
 const FALLBACK_TRAY_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAALElEQVR42mNgGAWjYBSMglEwCkbBKBgFgwH+//8/BoZRA2g0jIJRMAoGAG0hBB1vD2i8AAAAAElFTkSuQmCC';
 
@@ -10,6 +10,7 @@ export interface TrayManagerOptions {
   menuFactory: MenuFactory;
   onToggleNote: () => void;
   logger: AppLogger;
+  iconPath?: string;
 }
 
 export class TrayManager {
@@ -22,9 +23,15 @@ export class TrayManager {
 
   create(): Tray {
     if (this.#tray && !this.#tray.isDestroyed()) return this.#tray;
-    const image = nativeImage.createFromDataURL(FALLBACK_TRAY_PNG);
-    // macOS 模板图会自动适配浅色/深色菜单栏。
-    if (process.platform === 'darwin') image.setTemplateImage(true);
+    let image = this.#options.iconPath
+      ? nativeImage.createFromPath(this.#options.iconPath)
+      : nativeImage.createFromDataURL(FALLBACK_TRAY_PNG);
+    if (image.isEmpty()) {
+      this.#options.logger.warn('Tray icon could not be loaded; using fallback', {
+        path: this.#options.iconPath,
+      });
+      image = nativeImage.createFromDataURL(FALLBACK_TRAY_PNG);
+    }
     const tray = new Tray(image);
     tray.setToolTip('悬浮便利贴');
     tray.setContextMenu(this.#options.menuFactory.createTrayMenu());
