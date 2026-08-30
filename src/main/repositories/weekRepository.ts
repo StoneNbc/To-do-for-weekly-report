@@ -17,12 +17,16 @@ import {
   assertValidIsoDate,
   assertValidLocalTime,
   assertValidTaskContent,
+  assertValidTaskDetails,
 } from '../../shared/validation';
 import {
+  createWeekTaskDetailNodes,
   formatArchivedTask,
   formatDayHeader,
   formatWeekHeader,
   parseWeek,
+  getWeekTaskBlockEnd,
+  readWeekTaskDetails,
   reindexWeekNodes,
   serializeWeek,
   type ArchivedTaskNode,
@@ -45,12 +49,14 @@ export interface WeekReadResult {
 
 export interface HistoricalTaskInput {
   content: string;
+  details?: string;
   addedDate?: string;
   completedAt?: string;
 }
 
 export interface ArchivedTaskInput {
   content: string;
+  details?: string;
   addedDate?: string;
   completedAt?: string;
 }
@@ -130,6 +136,7 @@ export class WeekRepository {
   ): Promise<HistoricalInsertResult> {
     assertValidIsoDate(date);
     const normalized = assertValidTaskContent(input.content);
+    const details = assertValidTaskDetails(input.details ?? '');
     if (input.addedDate !== undefined) assertValidIsoDate(input.addedDate);
     if (input.completedAt !== undefined) assertValidLocalTime(input.completedAt);
     const { isoYear, isoWeek } = getIsoWeekInfo(date);
@@ -141,6 +148,7 @@ export class WeekRepository {
         document,
         date,
         normalized,
+        details,
         input.addedDate,
         input.completedAt,
       );
@@ -159,7 +167,10 @@ export class WeekRepository {
   ): Promise<DayRecordSnapshot> {
     assertValidIsoDate(date);
     const normalized = tasks.map((task) => {
-      const value: ArchivedTaskInput = { content: assertValidTaskContent(task.content) };
+      const value: ArchivedTaskInput = {
+        content: assertValidTaskContent(task.content),
+        details: assertValidTaskDetails(task.details ?? ''),
+      };
       if (task.addedDate !== undefined) value.addedDate = assertValidIsoDate(task.addedDate);
       if (task.completedAt !== undefined) {
         value.completedAt = assertValidLocalTime(task.completedAt);
@@ -175,7 +186,14 @@ export class WeekRepository {
       const document = parseWeek(file.text, { isoYear, isoWeek, file: path });
       // 一批归档在同一个文件事务内按原顺序追加，不做正文去重。
       for (const task of normalized) {
-        insertHistoricalTask(document, date, task.content, task.addedDate, task.completedAt);
+        insertHistoricalTask(
+          document,
+          date,
+          task.content,
+          task.details ?? '',
+          task.addedDate,
+          task.completedAt,
+        );
       }
       return { text: serializeWeek(document), result: undefined };
     });
@@ -193,6 +211,7 @@ export class WeekRepository {
   ): Promise<DayRecordSnapshot> {
     assertValidIsoDate(date);
     const content = assertValidTaskContent(input.content);
+    const details = input.details === undefined ? undefined : assertValidTaskDetails(input.details);
     if (input.addedDate !== undefined) assertValidIsoDate(input.addedDate);
     if (input.completedAt !== undefined) assertValidLocalTime(input.completedAt);
     const { isoYear, isoWeek } = getIsoWeekInfo(date);
@@ -208,6 +227,15 @@ export class WeekRepository {
       if (input.completedAt === undefined) delete node.completedAt;
       else node.completedAt = input.completedAt;
       node.raw = formatArchivedTask(content, node.addedDate, input.completedAt);
+      if (details !== undefined) {
+        const blockEnd = getWeekTaskBlockEnd(document.nodes, locator.line);
+        document.nodes.splice(
+          locator.line + 1,
+          blockEnd - locator.line - 1,
+          ...createWeekTaskDetailNodes(details, locator.line + 1),
+        );
+        reindexWeekNodes(document.nodes);
+      }
       return { text: serializeWeek(document), result: undefined };
     });
     return this.daySnapshot(
@@ -227,7 +255,10 @@ export class WeekRepository {
       if (!node || node.kind !== 'archivedTask' || node.date !== date) {
         throw new TaskLineNotFoundError(locator.line);
       }
-      document.nodes.splice(locator.line, 1);
+      document.nodes.splice(
+        locator.line,
+        getWeekTaskBlockEnd(document.nodes, locator.line) - locator.line,
+      );
       removeEmptySafeDaySection(document, date);
       reindexWeekNodes(document.nodes);
       return { text: serializeWeek(document), result: undefined };
@@ -240,20 +271,18 @@ export class WeekRepository {
   }
 
   private daySnapshot(date: string, revision: string, document: WeekDocument): DayRecordSnapshot {
-    const tasks: HistoricalTaskView[] = document.nodes
-      .filter(
-        (node): node is ArchivedTaskNode => node.kind === 'archivedTask' && node.date === date,
-      )
-      .map((node) => {
-        const task: HistoricalTaskView = {
-          locator: { line: node.line, revision },
-          date,
-          content: node.content,
-        };
-        if (node.addedDate !== undefined) task.addedDate = node.addedDate;
-        if (node.completedAt !== undefined) task.completedAt = node.completedAt;
-        return task;
-      });
+    const tasks: HistoricalTaskView[] = document.nodes.flatMap((node, index) => {
+      if (node.kind !== 'archivedTask' || node.date !== date) return [];
+      const task: HistoricalTaskView = {
+        locator: { line: node.line, revision },
+        date,
+        content: node.content,
+        details: readWeekTaskDetails(document.nodes, index),
+      };
+      if (node.addedDate !== undefined) task.addedDate = node.addedDate;
+      if (node.completedAt !== undefined) task.completedAt = node.completedAt;
+      return [task];
+    });
     return { date, revision, tasks, warnings: document.warnings };
   }
 }
@@ -268,6 +297,7 @@ const insertHistoricalTask = (
   document: WeekDocument,
   date: string,
   content: string,
+  details: string,
   addedDate?: string,
   completedAt?: string,
 ): number => {
@@ -280,6 +310,7 @@ const insertHistoricalTask = (
   };
   if (addedDate !== undefined) newNode.addedDate = addedDate;
   if (completedAt !== undefined) newNode.completedAt = completedAt;
+  const detailNodes = createWeekTaskDetailNodes(details);
 
   const firstHeader = document.nodes.findIndex(
     (node) => node.kind === 'dayHeader' && node.date === date,
@@ -289,10 +320,12 @@ const insertHistoricalTask = (
     let sectionEnd = firstHeader + 1;
     let insertion = firstHeader + 1;
     while (sectionEnd < document.nodes.length && document.nodes[sectionEnd]?.kind !== 'dayHeader') {
-      if (document.nodes[sectionEnd]?.kind === 'archivedTask') insertion = sectionEnd + 1;
+      if (document.nodes[sectionEnd]?.kind === 'archivedTask') {
+        insertion = getWeekTaskBlockEnd(document.nodes, sectionEnd);
+      }
       sectionEnd += 1;
     }
-    document.nodes.splice(insertion, 0, newNode);
+    document.nodes.splice(insertion, 0, newNode, ...detailNodes);
   } else {
     // 新日期段按日期插入；跨年顺序由完整 ISO 日期比较，而不是 MM-DD 字符串。
     const laterHeader = document.nodes.findIndex(
@@ -310,7 +343,7 @@ const insertHistoricalTask = (
       date,
       weekdayLabel: formatChineseWeekday(date),
     });
-    additions.push(newNode);
+    additions.push(newNode, ...detailNodes);
     document.nodes.splice(insertion, 0, ...additions);
   }
   reindexWeekNodes(document.nodes);

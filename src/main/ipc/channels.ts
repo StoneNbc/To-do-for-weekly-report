@@ -25,6 +25,7 @@ export const IPC = {
   windowOpenWeekly: 'window:open-weekly',
   windowGenerateCurrentWeekReport: 'window:generate-current-week-report',
   windowShowNote: 'window:show-note',
+  windowSetNoteCollapsed: 'window:set-note-collapsed',
   windowOpenSettings: 'window:open-settings',
   windowSetSettingsDirty: 'window:set-settings-dirty',
   windowDiscardSettingsChangesAndClose: 'window:discard-settings-changes-and-close',

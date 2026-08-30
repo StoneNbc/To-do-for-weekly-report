@@ -47,18 +47,29 @@ describe('ArchiveService', () => {
     );
   });
 
-  it('handles multi-day and cross-ISO-year rollover using the file date', async () => {
+  it('moves completed details to the week and carries pending details with today', async () => {
     const context = await setup(
-      '# 2020-12-31\n- [x] 跨年完成\n- [ ] 跨年顺延\n',
-      '2021-01-04',
+      '# 2026-08-12\n- [x] 已完成 @17:20\n  | 完成说明\n  | 第二行\n- [ ] 继续处理\n  | 顺延说明\n',
+      '2026-08-13',
     );
+
+    await context.service.reconcileToToday('startup');
+
+    expect(await readFile(context.todayPath, 'utf8')).toBe(
+      '# 2026-08-13\n- [ ] 继续处理\n  | 顺延说明\n',
+    );
+    expect(await readFile(join(context.directory, 'weeks/week-2026-W33.txt'), 'utf8')).toContain(
+      '- 已完成 @17:20\n  | 完成说明\n  | 第二行\n',
+    );
+  });
+
+  it('handles multi-day and cross-ISO-year rollover using the file date', async () => {
+    const context = await setup('# 2020-12-31\n- [x] 跨年完成\n- [ ] 跨年顺延\n', '2021-01-04');
     await context.service.reconcileToToday('resume');
     expect(await readFile(join(context.directory, 'weeks/week-2020-W53.txt'), 'utf8')).toContain(
       '## 周四 12-31\n- 跨年完成',
     );
-    expect(await readFile(context.todayPath, 'utf8')).toBe(
-      '# 2021-01-04\n- [ ] 跨年顺延\n',
-    );
+    expect(await readFile(context.todayPath, 'utf8')).toBe('# 2021-01-04\n- [ ] 跨年顺延\n');
   });
 
   it('archives two completely identical tasks without deduplication', async () => {

@@ -23,6 +23,7 @@ import type { AppLogger } from '../logging/logger';
 export interface AddHistoricalTaskInput {
   date: string;
   content: string;
+  details?: string | undefined;
   completedAt?: string | undefined;
 }
 
@@ -47,6 +48,7 @@ export interface CompletePendingOnDateInput {
 
 export interface EditPendingFromHistoryInput extends CompletePendingOnDateInput {
   content: string;
+  details?: string | undefined;
 }
 
 export type ReopenHistoricalTaskInput = DeleteHistoricalTaskInput;
@@ -128,13 +130,14 @@ export class WeeklyService {
   async editPendingFromHistory(input: EditPendingFromHistoryInput): Promise<HistoryViewSnapshot> {
     this.assertHistoricalDate(input.date);
     await this.archiveService?.reconcileToToday('before-mutation');
-    await this.todayRepository.updateTask(input.locator, { content: input.content });
+    await this.todayRepository.updateTask(input.locator, {
+      content: input.content,
+      ...(input.details !== undefined ? { details: input.details } : {}),
+    });
     return this.getHistoryView(input.date);
   }
 
-  async deletePendingFromHistory(
-    input: CompletePendingOnDateInput,
-  ): Promise<HistoryViewSnapshot> {
+  async deletePendingFromHistory(input: CompletePendingOnDateInput): Promise<HistoryViewSnapshot> {
     this.assertHistoricalDate(input.date);
     await this.archiveService?.reconcileToToday('before-mutation');
     await this.todayRepository.deleteTask(input.locator);
@@ -151,14 +154,20 @@ export class WeeklyService {
 
   async addHistoricalTask(input: AddHistoricalTaskInput): Promise<DayRecordSnapshot> {
     this.assertHistoricalDate(input.date);
-    const task: { content: string; completedAt?: string } = { content: input.content };
+    const task: { content: string; details?: string; completedAt?: string } = {
+      content: input.content,
+    };
+    if (input.details !== undefined) task.details = input.details;
     if (input.completedAt !== undefined) task.completedAt = input.completedAt;
     return this.weekRepository.addHistoricalTask(input.date, task);
   }
 
   async editHistoricalTask(input: EditHistoricalTaskInput): Promise<HistoryViewSnapshot> {
     this.assertHistoricalDate(input.date);
-    const task: { content: string; completedAt?: string } = { content: input.content };
+    const task: { content: string; details?: string; completedAt?: string } = {
+      content: input.content,
+    };
+    if (input.details !== undefined) task.details = input.details;
     if (input.completedAt !== undefined) task.completedAt = input.completedAt;
     await this.weekRepository.updateHistoricalTask(input.date, input.locator, task);
     return this.getHistoryView(input.date);
@@ -211,7 +220,9 @@ export class WeeklyService {
     }
   }
 
-  private enqueueTransfer(operation: () => Promise<HistoryViewSnapshot>): Promise<HistoryViewSnapshot> {
+  private enqueueTransfer(
+    operation: () => Promise<HistoryViewSnapshot>,
+  ): Promise<HistoryViewSnapshot> {
     const execution = this.transferQueue.catch(() => undefined).then(operation);
     this.transferQueue = execution.then(
       () => undefined,
@@ -239,6 +250,7 @@ export class WeeklyService {
 
     const inserted = await this.weekRepository.insertHistoricalTask(input.date, {
       content: task.content,
+      details: task.details,
       ...(task.addedDate !== undefined ? { addedDate: task.addedDate } : {}),
     });
     try {
@@ -277,6 +289,7 @@ export class WeeklyService {
       task.content,
       null,
       task.addedDate,
+      task.details,
     );
     try {
       await this.weekRepository.deleteHistoricalTask(input.date, input.locator);

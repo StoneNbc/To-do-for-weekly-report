@@ -36,8 +36,12 @@ describe('TaskService', () => {
     expect(snapshot.tasks[0]).toMatchObject({ content: '新任务', addedDate: '2026-08-13' });
     snapshot = await task.toggleTodayTask(snapshot.tasks[0]!.locator);
     expect(snapshot.tasks[0]).toMatchObject({ completed: true, completedAt: '14:20' });
-    snapshot = await task.editTodayTask(snapshot.tasks[0]!.locator, '已编辑');
-    expect(snapshot.tasks[0]).toMatchObject({ content: '已编辑', completedAt: '14:20' });
+    snapshot = await task.editTodayTask(snapshot.tasks[0]!.locator, '已编辑', '补充说明');
+    expect(snapshot.tasks[0]).toMatchObject({
+      content: '已编辑',
+      details: '补充说明',
+      completedAt: '14:20',
+    });
     snapshot = await task.toggleTodayTask(snapshot.tasks[0]!.locator);
     expect(snapshot.tasks[0]).toMatchObject({ completed: false });
     expect(snapshot.tasks[0]).not.toHaveProperty('completedAt');
@@ -82,7 +86,7 @@ describe('WeeklyService', () => {
 
   it('shows eligible global pending tasks and moves them to and from a historical date', async () => {
     const { weekly, today } = await setup(
-      '# 2026-08-13\n- [ ] 可回填 @添加:2026-08-10\n- [ ] 旧任务\n- [ ] 尚未添加 @添加:2026-08-13\n',
+      '# 2026-08-13\n- [ ] 可回填 @添加:2026-08-10\n  | 回填说明\n- [ ] 旧任务\n- [ ] 尚未添加 @添加:2026-08-13\n',
     );
     let view = await weekly.getHistoryView('2026-08-12');
     expect(view.backlog.tasks.map((task) => task.content)).toEqual(['可回填', '旧任务']);
@@ -93,6 +97,7 @@ describe('WeeklyService', () => {
     });
     expect(view.completed.tasks[0]).toMatchObject({
       content: '可回填',
+      details: '回填说明',
       addedDate: '2026-08-10',
     });
     expect(view.completed.tasks[0]).not.toHaveProperty('completedAt');
@@ -104,6 +109,7 @@ describe('WeeklyService', () => {
     });
     expect(view.backlog.tasks.find((task) => task.content === '可回填')).toMatchObject({
       content: '可回填',
+      details: '回填说明',
       addedDate: '2026-08-10',
       completed: false,
     });
@@ -124,9 +130,7 @@ describe('WeeklyService', () => {
   });
 
   it('rejects completion before a known added date but allows legacy tasks', async () => {
-    const { weekly } = await setup(
-      '# 2026-08-13\n- [ ] 有日期 @添加:2026-08-12\n- [ ] 旧任务\n',
-    );
+    const { weekly } = await setup('# 2026-08-13\n- [ ] 有日期 @添加:2026-08-12\n- [ ] 旧任务\n');
     const todayView = await weekly.getHistoryView('2026-08-11');
     expect(todayView.backlog.tasks.map((task) => task.content)).toEqual(['旧任务']);
     const current = await weekly.getHistoryView('2026-08-12');
@@ -144,9 +148,7 @@ describe('WeeklyService', () => {
   });
 
   it('rolls back the week insertion when removing the pending task fails', async () => {
-    const { weekly, today, weeks } = await setup(
-      '# 2026-08-13\n- [ ] 回滚任务 @添加:2026-08-10\n',
-    );
+    const { weekly, today, weeks } = await setup('# 2026-08-13\n- [ ] 回滚任务 @添加:2026-08-10\n');
     const view = await weekly.getHistoryView('2026-08-12');
     vi.spyOn(today, 'deleteTask').mockRejectedValueOnce(new Error('today write failed'));
 
@@ -161,14 +163,10 @@ describe('WeeklyService', () => {
   });
 
   it('reports partial failure when a cross-file rollback also fails', async () => {
-    const { weekly, today, weeks } = await setup(
-      '# 2026-08-13\n- [ ] 重复风险 @添加:2026-08-10\n',
-    );
+    const { weekly, today, weeks } = await setup('# 2026-08-13\n- [ ] 重复风险 @添加:2026-08-10\n');
     const view = await weekly.getHistoryView('2026-08-12');
     vi.spyOn(today, 'deleteTask').mockRejectedValueOnce(new Error('today write failed'));
-    vi.spyOn(weeks, 'deleteHistoricalTask').mockRejectedValueOnce(
-      new Error('rollback failed'),
-    );
+    vi.spyOn(weeks, 'deleteHistoricalTask').mockRejectedValueOnce(new Error('rollback failed'));
 
     await expect(
       weekly.completePendingOnDate({
@@ -186,9 +184,7 @@ describe('WeeklyService', () => {
       content: '恢复回滚',
       addedDate: '2026-08-10',
     });
-    vi.spyOn(weeks, 'deleteHistoricalTask').mockRejectedValueOnce(
-      new Error('week write failed'),
-    );
+    vi.spyOn(weeks, 'deleteHistoricalTask').mockRejectedValueOnce(new Error('week write failed'));
 
     await expect(
       weekly.reopenHistoricalTask({

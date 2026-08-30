@@ -53,6 +53,9 @@ export function FloatingNotePage() {
     expiresAt: number;
   } | null>(null);
   const [addedDateDisplay, setAddedDateDisplay] = useState<AddedDateDisplay>('hover');
+  const [activeEditingKey, setActiveEditingKey] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+  const [collapsePending, setCollapsePending] = useState(false);
 
   const loadToday = useCallback(async () => {
     // 日期快速切换时只接受最后一次请求，防止较慢旧响应覆盖当前页面。
@@ -227,27 +230,33 @@ export function FloatingNotePage() {
   const historicalPendingTasks = historicalSnapshot?.backlog.tasks ?? [];
   const saving = state.mutation === 'saving';
 
-  const editToday = (task: TodayTaskView, content: string) => {
+  const editToday = (task: TodayTaskView, content: string, details: string) => {
     // 编辑已完成任务时保留原完成时间，除非用户在历史模式显式修改时间。
     const input = task.completedAt
-      ? { locator: task.locator, content, completedAt: task.completedAt }
-      : { locator: task.locator, content };
+      ? { locator: task.locator, content, details, completedAt: task.completedAt }
+      : { locator: task.locator, content, details };
     return applyMutation(() => api.today.edit(input));
   };
 
-  const editHistorical = (task: HistoricalTaskView, content: string, completedAt?: string) => {
+  const editHistorical = (
+    task: HistoricalTaskView,
+    content: string,
+    details: string,
+    completedAt?: string,
+  ) => {
     const input = completedAt
-      ? { date: task.date, locator: task.locator, content, completedAt }
-      : { date: task.date, locator: task.locator, content };
+      ? { date: task.date, locator: task.locator, content, details, completedAt }
+      : { date: task.date, locator: task.locator, content, details };
     return applyMutation(() => api.history.edit(input));
   };
 
-  const editHistoricalPending = (task: TodayTaskView, content: string) =>
+  const editHistoricalPending = (task: TodayTaskView, content: string, details: string) =>
     applyMutation(() =>
       api.history.editPending({
         date: state.selectedDate,
         locator: task.locator,
         content,
+        details,
       }),
     );
 
@@ -268,6 +277,52 @@ export function FloatingNotePage() {
       setExporting(false);
     }
   }, [api]);
+
+  const toggleCollapsed = useCallback(async () => {
+    if (collapsePending) return;
+    const next = !collapsed;
+    setCollapsePending(true);
+    setMenuOpen(false);
+    setActiveEditingKey(null);
+    try {
+      setCollapsed(await api.window.setNoteCollapsed(next));
+    } catch (cause) {
+      dispatch({
+        type: 'mutation-failure',
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: cause instanceof Error ? cause.message : '无法调整便利贴大小，请稍后重试',
+        },
+      });
+    } finally {
+      setCollapsePending(false);
+    }
+  }, [api, collapsePending, collapsed]);
+
+  const toggleMenu = useCallback(async () => {
+    if (!collapsed) {
+      setMenuOpen((open) => !open);
+      return;
+    }
+    if (collapsePending) return;
+
+    setCollapsePending(true);
+    try {
+      const remainsCollapsed = await api.window.setNoteCollapsed(false);
+      setCollapsed(remainsCollapsed);
+      if (!remainsCollapsed) setMenuOpen(true);
+    } catch (cause) {
+      dispatch({
+        type: 'mutation-failure',
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: cause instanceof Error ? cause.message : '无法打开便利贴菜单，请稍后重试',
+        },
+      });
+    } finally {
+      setCollapsePending(false);
+    }
+  }, [api, collapsePending, collapsed]);
 
   const menu = useMemo(
     () =>
@@ -359,113 +414,133 @@ export function FloatingNotePage() {
 
   return (
     <main
-      className="note-root relative flex h-screen min-h-[280px] flex-col overflow-hidden p-3"
+      className={`note-root relative flex h-screen flex-col overflow-hidden p-3 ${collapsed ? 'min-h-0' : 'min-h-[280px]'}`}
       style={noteStyle}
     >
       <TitleBar
+        collapsed={collapsed}
+        collapsePending={collapsePending}
         isHistory={state.mode === 'history'}
         onNextDay={() => {
           const next = addLocalDays(state.selectedDate, 1);
           if (next === today) void loadToday();
           else if (next < today) void loadHistory(next);
         }}
-        onOpenMenu={() => setMenuOpen((open) => !open)}
+        onOpenMenu={() => void toggleMenu()}
         onPreviousDay={() => void loadHistory(addLocalDays(state.selectedDate, -1))}
         onToday={() => void loadToday()}
+        onToggleCollapsed={() => void toggleCollapsed()}
         menuOpen={menuOpen}
         selectedDate={state.selectedDate}
       />
-      {menu}
-      <StatusBanner error={state.error} notice={state.notice} onRetry={refresh} />
+      {!collapsed ? (
+        <>
+          {menu}
+          <StatusBanner error={state.error} notice={state.notice} onRetry={refresh} />
 
-      <section className="min-h-0 flex-1 overflow-y-auto py-2" aria-busy={state.loading || saving}>
-        {state.loading ? (
-          <div className="grid h-full place-items-center" role="status">
-            <p className="text-sm text-stone-500">正在读取本地记录…</p>
-          </div>
-        ) : state.mode === 'today' ? (
-          <>
-            <TaskList
-              addedDateDisplay={addedDateDisplay}
-              disabled={saving}
-              onDelete={(locator) => void applyMutation(() => api.today.delete(locator))}
-              onEdit={editToday}
-              onToggle={(locator) => void applyMutation(() => api.today.toggle(locator))}
-              tasks={pendingTasks}
-            />
-            <CompletedSection
-              addedDateDisplay={addedDateDisplay}
-              disabled={saving}
-              expanded={state.completedExpanded}
-              onDelete={(locator) => void applyMutation(() => api.today.delete(locator))}
-              onEdit={editToday}
-              onToggle={(locator) => void applyMutation(() => api.today.toggle(locator))}
-              onToggleExpanded={() => {
-                const previous = state.completedExpanded;
-                const next = !previous;
-                dispatch({ type: 'set-completed-expanded', expanded: next });
-                void api.settings.update({ completedExpanded: next }).then((result) => {
-                  if (!result.ok) {
-                    dispatch({ type: 'set-completed-expanded', expanded: previous });
-                    dispatch({ type: 'mutation-failure', error: result.error });
+          <section
+            className="min-h-0 flex-1 overflow-y-auto py-2"
+            aria-busy={state.loading || saving}
+          >
+            {state.loading ? (
+              <div className="grid h-full place-items-center" role="status">
+                <p className="text-sm text-stone-500">正在读取本地记录…</p>
+              </div>
+            ) : state.mode === 'today' ? (
+              <>
+                <TaskList
+                  activeEditingKey={activeEditingKey}
+                  addedDateDisplay={addedDateDisplay}
+                  disabled={saving}
+                  onDelete={(locator) => void applyMutation(() => api.today.delete(locator))}
+                  onEdit={editToday}
+                  onEditingChange={setActiveEditingKey}
+                  onToggle={(locator) => void applyMutation(() => api.today.toggle(locator))}
+                  tasks={pendingTasks}
+                />
+                <CompletedSection
+                  activeEditingKey={activeEditingKey}
+                  addedDateDisplay={addedDateDisplay}
+                  disabled={saving}
+                  expanded={state.completedExpanded}
+                  onDelete={(locator) => void applyMutation(() => api.today.delete(locator))}
+                  onEdit={editToday}
+                  onEditingChange={setActiveEditingKey}
+                  onToggle={(locator) => void applyMutation(() => api.today.toggle(locator))}
+                  onToggleExpanded={() => {
+                    const previous = state.completedExpanded;
+                    const next = !previous;
+                    dispatch({ type: 'set-completed-expanded', expanded: next });
+                    void api.settings.update({ completedExpanded: next }).then((result) => {
+                      if (!result.ok) {
+                        dispatch({ type: 'set-completed-expanded', expanded: previous });
+                        dispatch({ type: 'mutation-failure', error: result.error });
+                      }
+                    });
+                  }}
+                  tasks={completedTasks}
+                />
+              </>
+            ) : (
+              <>
+                <TaskList
+                  activeEditingKey={activeEditingKey}
+                  addedDateDisplay={addedDateDisplay}
+                  disabled={saving}
+                  onDelete={(locator) =>
+                    void applyMutation(() =>
+                      api.history.deletePending({ date: state.selectedDate, locator }),
+                    )
                   }
-                });
-              }}
-              tasks={completedTasks}
-            />
-          </>
-        ) : (
-          <>
-            <TaskList
-              addedDateDisplay={addedDateDisplay}
-              disabled={saving}
-              onDelete={(locator) =>
-                void applyMutation(() =>
-                  api.history.deletePending({ date: state.selectedDate, locator }),
-                )
-              }
-              onEdit={editHistoricalPending}
-              onToggle={(locator) =>
-                void applyMutation(() =>
-                  api.history.completePending({ date: state.selectedDate, locator }),
-                )
-              }
-              tasks={historicalPendingTasks}
-            />
-            <HistoricalRecords
-              addedDateDisplay={addedDateDisplay}
-              disabled={saving}
-              onDelete={(locator) =>
-                void applyMutation(() => api.history.delete({ date: state.selectedDate, locator }))
-              }
-              onEdit={editHistorical}
-              onToggle={(locator) =>
-                void applyMutation(() =>
-                  api.history.reopenCompleted({ date: state.selectedDate, locator }),
-                )
-              }
-              snapshot={historicalSnapshot?.completed ?? null}
-            />
-          </>
-        )}
-      </section>
+                  onEdit={editHistoricalPending}
+                  onEditingChange={setActiveEditingKey}
+                  onToggle={(locator) =>
+                    void applyMutation(() =>
+                      api.history.completePending({ date: state.selectedDate, locator }),
+                    )
+                  }
+                  tasks={historicalPendingTasks}
+                />
+                <HistoricalRecords
+                  activeEditingKey={activeEditingKey}
+                  addedDateDisplay={addedDateDisplay}
+                  disabled={saving}
+                  onDelete={(locator) =>
+                    void applyMutation(() =>
+                      api.history.delete({ date: state.selectedDate, locator }),
+                    )
+                  }
+                  onEdit={editHistorical}
+                  onEditingChange={setActiveEditingKey}
+                  onToggle={(locator) =>
+                    void applyMutation(() =>
+                      api.history.reopenCompleted({ date: state.selectedDate, locator }),
+                    )
+                  }
+                  snapshot={historicalSnapshot?.completed ?? null}
+                />
+              </>
+            )}
+          </section>
 
-      {state.mode === 'today' ? (
-        <AddTaskInput
-          disabled={saving}
-          onAdd={(content) => applyMutation(() => api.today.add(content))}
-        />
-      ) : (
-        <AddTaskInput
-          disabled={saving}
-          onAdd={(content) =>
-            applyMutation(
-              () => api.history.addPending({ date: state.selectedDate, content }),
-              '已添加到全局待办',
-            )
-          }
-        />
-      )}
+          {state.mode === 'today' ? (
+            <AddTaskInput
+              disabled={saving}
+              onAdd={(content) => applyMutation(() => api.today.add(content))}
+            />
+          ) : (
+            <AddTaskInput
+              disabled={saving}
+              onAdd={(content) =>
+                applyMutation(
+                  () => api.history.addPending({ date: state.selectedDate, content }),
+                  '已添加到全局待办',
+                )
+              }
+            />
+          )}
+        </>
+      ) : null}
     </main>
   );
 }
@@ -477,22 +552,30 @@ function HistoricalRecords({
   onDelete,
   onToggle,
   addedDateDisplay,
+  activeEditingKey,
+  onEditingChange,
 }: {
   snapshot: DayRecordSnapshot | null;
   disabled: boolean;
   onEdit: (
     task: HistoricalTaskView,
     content: string,
+    details: string,
     completedAt?: string,
   ) => Promise<boolean> | boolean;
   onDelete: (locator: TaskLocator) => void;
   onToggle: (locator: TaskLocator) => void;
   addedDateDisplay: AddedDateDisplay;
+  activeEditingKey: string | null;
+  onEditingChange: (taskKey: string | null) => void;
 }) {
   const tasks = snapshot?.tasks ?? [];
 
   return (
-    <section className="mt-3 border-t border-amber-900/10 pt-2" aria-labelledby="history-completed-heading">
+    <section
+      className="mt-3 border-t border-amber-900/10 pt-2"
+      aria-labelledby="history-completed-heading"
+    >
       <h2 className="px-2 py-1.5 text-xs font-medium text-stone-500" id="history-completed-heading">
         已完成（{tasks.length}）
       </h2>
@@ -506,16 +589,21 @@ function HistoricalRecords({
         <ul aria-label="历史完成记录" className="space-y-1">
           {tasks.map((task) => (
             <TaskItem
+              activeEditingKey={activeEditingKey}
               completed
               addedDate={task.addedDate}
               addedDateDisplay={addedDateDisplay}
               completedAt={task.completedAt}
               content={task.content}
+              details={task.details}
               disabled={disabled}
               key={`${task.locator.revision}:${task.locator.line}`}
               locator={task.locator}
               onDelete={onDelete}
-              onEdit={(_, content, completedAt) => onEdit(task, content, completedAt)}
+              onEditingChange={onEditingChange}
+              onEdit={(_, content, details, completedAt) =>
+                onEdit(task, content, details, completedAt)
+              }
               onToggle={onToggle}
               editableTime
             />

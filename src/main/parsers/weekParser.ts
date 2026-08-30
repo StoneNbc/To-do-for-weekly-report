@@ -7,6 +7,7 @@ import {
 } from '../../shared/dateUtils';
 import { isValidLocalTime } from '../../shared/validation';
 import { decodeText, encodeLines, type LineEnding } from './lineEndings';
+import { formatTaskDetailLine, parseTaskDetailLine } from './taskDetails';
 
 // 周文件中的 MM-DD 无法独立判断年份，调用方必须提供目标 ISO 周上下文。
 const WEEK_HEADER_RE = /^# 第(\d{1,2})周 \((\d{4}-\d{2}-\d{2}) ~ (\d{4}-\d{2}-\d{2})\)$/;
@@ -43,6 +44,11 @@ export interface ArchivedTaskNode extends WeekNodeBase {
   completedAt?: string;
 }
 
+export interface WeekTaskDetailNode extends WeekNodeBase {
+  kind: 'taskDetail';
+  content: string;
+}
+
 export interface WeekBlankNode extends WeekNodeBase {
   kind: 'blank';
 }
@@ -53,7 +59,12 @@ export interface WeekUnknownNode extends WeekNodeBase {
 }
 
 export type WeekNode =
-  WeekHeaderNode | DayHeaderNode | ArchivedTaskNode | WeekBlankNode | WeekUnknownNode;
+  | WeekHeaderNode
+  | DayHeaderNode
+  | ArchivedTaskNode
+  | WeekTaskDetailNode
+  | WeekBlankNode
+  | WeekUnknownNode;
 
 export interface WeekDocument {
   isoYear: number;
@@ -103,6 +114,7 @@ export const parseWeek = (text: string, options: ParseWeekOptions): WeekDocument
   const seenDates = new Set<string>();
   let currentDate: string | null = null;
   let hasWeekHeader = false;
+  let acceptsTaskDetail = false;
 
   if (decoded.hadBom) {
     warnings.push(makeWarning(file, 0, 'UNKNOWN_LINE', '检测到 UTF-8 BOM，写回时将移除'));
@@ -111,11 +123,13 @@ export const parseWeek = (text: string, options: ParseWeekOptions): WeekDocument
   decoded.lines.forEach((raw, line) => {
     if (raw === '') {
       nodes.push({ kind: 'blank', raw, line });
+      acceptsTaskDetail = false;
       return;
     }
 
     const weekHeader = WEEK_HEADER_RE.exec(raw);
     if (weekHeader) {
+      acceptsTaskDetail = false;
       const parsedWeek = Number(weekHeader[1]);
       const start = weekHeader[2] ?? '';
       const end = weekHeader[3] ?? '';
@@ -145,6 +159,7 @@ export const parseWeek = (text: string, options: ParseWeekOptions): WeekDocument
 
     const dayHeader = DAY_HEADER_RE.exec(raw);
     if (dayHeader) {
+      acceptsTaskDetail = false;
       const weekdayLabel = dayHeader[1] ?? '';
       const date = resolveMonthDay(
         options.isoYear,
@@ -224,6 +239,19 @@ export const parseWeek = (text: string, options: ParseWeekOptions): WeekDocument
       if (addedDate !== undefined) node.addedDate = addedDate;
       if (completedAt !== undefined) node.completedAt = completedAt;
       nodes.push(node);
+      acceptsTaskDetail = true;
+      return;
+    }
+
+    const detail = parseTaskDetailLine(raw);
+    if (detail !== null) {
+      if (acceptsTaskDetail) {
+        nodes.push({ kind: 'taskDetail', raw, line, content: detail });
+      } else {
+        const reason = '详情行上方没有可关联的归档任务';
+        nodes.push({ kind: 'unknown', raw, line, reason });
+        warnings.push(makeWarning(file, line, 'UNKNOWN_LINE', reason));
+      }
       return;
     }
 
@@ -231,6 +259,7 @@ export const parseWeek = (text: string, options: ParseWeekOptions): WeekDocument
     const reason = code === 'INVALID_HEADER' ? '无法识别的周文件标题' : '无法识别的周文件行';
     nodes.push({ kind: 'unknown', raw, line, reason });
     warnings.push(makeWarning(file, line, code, reason));
+    acceptsTaskDetail = false;
   });
 
   if (!hasWeekHeader) {
@@ -266,6 +295,30 @@ export const formatArchivedTask = (
   completedAt?: string,
 ): string =>
   `- ${content}${addedDate ? ` @添加:${addedDate}` : ''}${completedAt ? ` @${completedAt}` : ''}`;
+
+export const createWeekTaskDetailNodes = (details: string, startLine = 0): WeekTaskDetailNode[] =>
+  details === ''
+    ? []
+    : details.split('\n').map((content, index) => ({
+        kind: 'taskDetail',
+        raw: formatTaskDetailLine(content),
+        line: startLine + index,
+        content,
+      }));
+
+export const getWeekTaskBlockEnd = (nodes: WeekNode[], rootIndex: number): number => {
+  if (nodes[rootIndex]?.kind !== 'archivedTask') return rootIndex;
+  let end = rootIndex + 1;
+  while (nodes[end]?.kind === 'taskDetail') end += 1;
+  return end;
+};
+
+export const readWeekTaskDetails = (nodes: WeekNode[], rootIndex: number): string =>
+  nodes
+    .slice(rootIndex + 1, getWeekTaskBlockEnd(nodes, rootIndex))
+    .filter((node): node is WeekTaskDetailNode => node.kind === 'taskDetail')
+    .map((node) => node.content)
+    .join('\n');
 
 export const serializeWeek = (document: WeekDocument): string =>
   // 直接拼接节点 raw，未被 Repository 修改的行不会被格式化或丢失。

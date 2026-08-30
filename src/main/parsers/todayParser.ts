@@ -2,6 +2,7 @@ import type { ParseWarning } from '../../shared/domain';
 import { isValidLocalDate } from '../../shared/dateUtils';
 import { isValidLocalTime } from '../../shared/validation';
 import { decodeText, encodeLines, type LineEnding } from './lineEndings';
+import { formatTaskDetailLine, parseTaskDetailLine } from './taskDetails';
 
 // 解析器生成保留 raw 的轻量 AST。Repository 只重写被编辑的节点，未知行原样保留。
 const HEADER_RE = /^# (\d{4}-\d{2}-\d{2})$/;
@@ -29,6 +30,11 @@ export interface TodayTaskNode extends TodayNodeBase {
   completedAt?: string;
 }
 
+export interface TodayTaskDetailNode extends TodayNodeBase {
+  kind: 'taskDetail';
+  content: string;
+}
+
 export interface TodayBlankNode extends TodayNodeBase {
   kind: 'blank';
 }
@@ -38,7 +44,8 @@ export interface TodayUnknownNode extends TodayNodeBase {
   reason: string;
 }
 
-export type TodayNode = TodayHeaderNode | TodayTaskNode | TodayBlankNode | TodayUnknownNode;
+export type TodayNode =
+  TodayHeaderNode | TodayTaskNode | TodayTaskDetailNode | TodayBlankNode | TodayUnknownNode;
 
 export interface TodayDocument {
   nodes: TodayNode[];
@@ -66,6 +73,7 @@ export const parseToday = (text: string, options: ParseTodayOptions = {}): Today
   const nodes: TodayNode[] = [];
   const warnings: ParseWarning[] = [];
   let fileDate: string | null = null;
+  let acceptsTaskDetail = false;
 
   if (decoded.hadBom) {
     warnings.push(warning(file, 0, 'UNKNOWN_LINE', '检测到 UTF-8 BOM，写回时将移除'));
@@ -74,11 +82,13 @@ export const parseToday = (text: string, options: ParseTodayOptions = {}): Today
   decoded.lines.forEach((raw, line) => {
     if (raw === '') {
       nodes.push({ kind: 'blank', raw, line });
+      acceptsTaskDetail = false;
       return;
     }
 
     const header = HEADER_RE.exec(raw);
     if (header) {
+      acceptsTaskDetail = false;
       const date = header[1] ?? '';
       if (line !== 0 || fileDate !== null) {
         const reason = '日期头只能出现在第一行且只能有一个';
@@ -124,15 +134,26 @@ export const parseToday = (text: string, options: ParseTodayOptions = {}): Today
         addedDate = added[1];
         content = content.slice(0, added.index);
       } else if (addedLike) {
-        warnings.push(
-          warning(file, line, 'INVALID_ADDED_DATE', `无效的添加日期：${addedLike[1]}`),
-        );
+        warnings.push(warning(file, line, 'INVALID_ADDED_DATE', `无效的添加日期：${addedLike[1]}`));
       }
 
       const node: TodayTaskNode = { kind: 'task', raw, line, completed, content };
       if (addedDate !== undefined) node.addedDate = addedDate;
       if (completedAt !== undefined) node.completedAt = completedAt;
       nodes.push(node);
+      acceptsTaskDetail = true;
+      return;
+    }
+
+    const detail = parseTaskDetailLine(raw);
+    if (detail !== null) {
+      if (acceptsTaskDetail) {
+        nodes.push({ kind: 'taskDetail', raw, line, content: detail });
+      } else {
+        const reason = '详情行上方没有可关联的任务';
+        nodes.push({ kind: 'unknown', raw, line, reason });
+        warnings.push(warning(file, line, 'UNKNOWN_LINE', reason));
+      }
       return;
     }
 
@@ -140,6 +161,7 @@ export const parseToday = (text: string, options: ParseTodayOptions = {}): Today
     const reason = code === 'INVALID_HEADER' ? '无法识别的日期头' : '无法识别的 today.txt 行';
     nodes.push({ kind: 'unknown', raw, line, reason });
     warnings.push(warning(file, line, code, reason));
+    acceptsTaskDetail = false;
   });
 
   if (fileDate === null) {
@@ -163,6 +185,33 @@ export const formatTodayTask = (
   completedAt?: string,
 ): string =>
   `- [${completed ? 'x' : ' '}] ${content}${addedDate ? ` @添加:${addedDate}` : ''}${completedAt ? ` @${completedAt}` : ''}`;
+
+export const createTodayTaskDetailNodes = (
+  details: string,
+  startLine = 0,
+): TodayTaskDetailNode[] =>
+  details === ''
+    ? []
+    : details.split('\n').map((content, index) => ({
+        kind: 'taskDetail',
+        raw: formatTaskDetailLine(content),
+        line: startLine + index,
+        content,
+      }));
+
+export const getTodayTaskBlockEnd = (nodes: TodayNode[], rootIndex: number): number => {
+  if (nodes[rootIndex]?.kind !== 'task') return rootIndex;
+  let end = rootIndex + 1;
+  while (nodes[end]?.kind === 'taskDetail') end += 1;
+  return end;
+};
+
+export const readTodayTaskDetails = (nodes: TodayNode[], rootIndex: number): string =>
+  nodes
+    .slice(rootIndex + 1, getTodayTaskBlockEnd(nodes, rootIndex))
+    .filter((node): node is TodayTaskDetailNode => node.kind === 'taskDetail')
+    .map((node) => node.content)
+    .join('\n');
 
 export const serializeToday = (document: TodayDocument): string =>
   // raw 是序列化的事实来源，确保解析后未修改的文本逐行保真。

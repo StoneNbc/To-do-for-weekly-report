@@ -5,6 +5,7 @@ import {
   normalizeNoteColor,
 } from '../../shared/noteAppearance';
 import { llmConnectionSettingsSchema } from '../services/configService';
+import { MAX_TASK_DETAILS_LENGTH } from '../../shared/validation';
 
 // IPC 是安全边界：即使 Renderer 有 TypeScript 类型，Main 仍要验证运行时输入。
 export const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -15,6 +16,10 @@ export const contentSchema = z
   .min(1)
   .max(2_000)
   .refine((value) => !/[\r\n]/.test(value));
+export const detailsSchema = z
+  .string()
+  .max(MAX_TASK_DETAILS_LENGTH)
+  .refine((value) => !value.includes('\0'));
 export const revisionSchema = z.string().min(1).max(128);
 export const taskLocatorSchema = z.object({
   line: z.number().int().nonnegative(),

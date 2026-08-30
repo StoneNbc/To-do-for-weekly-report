@@ -47,6 +47,7 @@ const api: ElectronAPI = {
     openWeekly: () => ipcRenderer.invoke(IPC.windowOpenWeekly),
     generateCurrentWeekReport: () => ipcRenderer.invoke(IPC.windowGenerateCurrentWeekReport),
     showNote: () => ipcRenderer.invoke(IPC.windowShowNote),
+    setNoteCollapsed: (collapsed) => ipcRenderer.invoke(IPC.windowSetNoteCollapsed, collapsed),
     openSettings: () => ipcRenderer.invoke(IPC.windowOpenSettings),
     setSettingsDirty: (dirty) => ipcRenderer.invoke(IPC.windowSetSettingsDirty, dirty),
     discardSettingsChangesAndClose: () =>

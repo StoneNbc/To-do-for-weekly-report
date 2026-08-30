@@ -25,12 +25,14 @@ export interface IsoWeekInput {
 export interface EditTodayInput {
   locator: TaskLocator;
   content: string;
+  details: string;
   completedAt?: LocalTime;
 }
 
 export interface AddHistoricalInput {
   date: string;
   content: string;
+  details: string;
   completedAt?: LocalTime;
 }
 
@@ -46,6 +48,7 @@ export interface HistoricalTaskLocatorInput {
 
 export interface EditPendingFromHistoryInput extends HistoricalTaskLocatorInput {
   content: string;
+  details: string;
 }
 
 export interface EditHistoricalInput extends AddHistoricalInput {
@@ -96,6 +99,7 @@ export interface ElectronAPI {
     openWeekly(): Promise<void>;
     generateCurrentWeekReport(): Promise<void>;
     showNote(): Promise<void>;
+    setNoteCollapsed(collapsed: boolean): Promise<boolean>;
     openSettings(): Promise<void>;
     setSettingsDirty(dirty: boolean): Promise<void>;
     discardSettingsChangesAndClose(): Promise<void>;

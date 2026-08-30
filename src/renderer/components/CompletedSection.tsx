@@ -1,4 +1,5 @@
 import type { AddedDateDisplay, TodayTaskView } from '../../shared/domain';
+import { ChevronIcon } from './ChevronIcon';
 import { TaskItem } from './TaskItem';
 
 const COLLAPSED_LIMIT = 3;
@@ -13,15 +14,19 @@ export function CompletedSection({
   onEdit,
   onDelete,
   addedDateDisplay = 'hover',
+  activeEditingKey,
+  onEditingChange,
 }: {
   tasks: TodayTaskView[];
   expanded: boolean;
   disabled?: boolean | undefined;
   onToggleExpanded: () => void;
   onToggle: (locator: TodayTaskView['locator']) => void;
-  onEdit: (task: TodayTaskView, content: string) => Promise<boolean> | boolean;
+  onEdit: (task: TodayTaskView, content: string, details: string) => Promise<boolean> | boolean;
   onDelete: (locator: TodayTaskView['locator']) => void;
   addedDateDisplay?: AddedDateDisplay;
+  activeEditingKey?: string | null;
+  onEditingChange?: (taskKey: string | null) => void;
 }) {
   const visibleTasks = expanded ? tasks : tasks.slice(0, COLLAPSED_LIMIT);
 
@@ -34,7 +39,7 @@ export function CompletedSection({
         type="button"
       >
         <span id="completed-heading">已完成（{tasks.length}）</span>
-        <span aria-hidden="true">{expanded ? '⌃' : '⌄'}</span>
+        <ChevronIcon expanded={expanded} />
       </button>
       {tasks.length === 0 ? (
         <p className="px-2 py-2 text-xs text-stone-400">今天还没有已完成事项</p>
@@ -43,15 +48,18 @@ export function CompletedSection({
           {visibleTasks.map((task) => (
             <TaskItem
               completed
+              activeEditingKey={activeEditingKey}
               addedDate={task.addedDate}
               addedDateDisplay={addedDateDisplay}
               completedAt={task.completedAt}
               content={task.content}
+              details={task.details}
               disabled={disabled}
               key={`${task.locator.revision}:${task.locator.line}`}
               locator={task.locator}
               onDelete={onDelete}
-              onEdit={(_, content) => onEdit(task, content)}
+              onEditingChange={onEditingChange}
+              onEdit={(_, content, details) => onEdit(task, content, details)}
               onToggle={onToggle}
             />
           ))}

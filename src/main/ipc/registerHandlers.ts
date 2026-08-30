@@ -4,6 +4,7 @@ import type { ApiErrorCode, ApiResult } from '../../shared/results';
 import { IPC } from './channels';
 import {
   contentSchema,
+  detailsSchema,
   isoDateSchema,
   isoWeekInputSchema,
   localTimeSchema,
@@ -18,11 +19,13 @@ import { getIsoWeekInfo } from '../../shared/dateUtils';
 const editTodaySchema = z.object({
   locator: taskLocatorSchema,
   content: contentSchema,
+  details: detailsSchema,
   completedAt: localTimeSchema.optional(),
 });
 const addHistoricalSchema = z.object({
   date: isoDateSchema,
   content: contentSchema,
+  details: detailsSchema,
   completedAt: localTimeSchema.optional(),
 });
 const editHistoricalSchema = addHistoricalSchema.extend({ locator: taskLocatorSchema });
@@ -30,6 +33,7 @@ const deleteHistoricalSchema = z.object({ date: isoDateSchema, locator: taskLoca
 const addPendingFromHistorySchema = z.object({ date: isoDateSchema, content: contentSchema });
 const editPendingFromHistorySchema = addPendingFromHistorySchema.extend({
   locator: taskLocatorSchema,
+  details: detailsSchema,
 });
 
 export interface BusinessServices {
@@ -133,6 +137,7 @@ export const registerBusinessHandlers = ({
     const snapshot = await services.task.editTodayTask(
       value.locator,
       value.content,
+      value.details,
       value.completedAt,
     );
     onAppWrite?.('today', snapshot.revision);

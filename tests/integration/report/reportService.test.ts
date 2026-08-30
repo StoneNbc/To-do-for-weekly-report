@@ -4,10 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReportAgent, TodaySnapshot, WeeklySnapshot } from '../../../src/shared/domain';
 import type { AppLogger } from '../../../src/main/logging/logger';
-import {
-  NoExportedReportError,
-  ReportService,
-} from '../../../src/main/services/reportService';
+import { NoExportedReportError, ReportService } from '../../../src/main/services/reportService';
 
 const roots: string[] = [];
 
@@ -49,11 +46,13 @@ const pendingSnapshot: TodaySnapshot = {
     {
       locator: { line: 1, revision: 'today-r1' },
       content: '延后到下周的待办',
+      details: '只保存在本地，不发送给报告 Agent',
       completed: false,
     },
     {
       locator: { line: 2, revision: 'today-r1' },
       content: '今日已经完成',
+      details: '',
       completed: true,
       completedAt: '18:00',
     },
@@ -73,7 +72,10 @@ const setup = async (options?: {
   const shell = { openPath: vi.fn(async () => ''), showItemInFolder: vi.fn() };
   const dialog = {
     showSaveDialog: vi.fn(async () =>
-      options?.cancelled ? { canceled: true, filePath: '' } : { canceled: false, filePath: selected }),
+      options?.cancelled
+        ? { canceled: true, filePath: '' }
+        : { canceled: false, filePath: selected },
+    ),
   };
   const weeklyService = { getWeek: vi.fn(async () => snapshot) };
   const agent = options?.agent ?? templateAgent();
@@ -102,9 +104,12 @@ describe('ReportService', () => {
     expect(result).toEqual({ status: 'saved', path: selected });
     expect(await readFile(selected, 'utf8')).toBe('周报正文');
     expect((await readFile(selected))[0]).not.toBe(0xef);
-    expect(dialog.showSaveDialog).toHaveBeenCalledWith(undefined, expect.objectContaining({
-      defaultPath: '周报-2026年第33周.txt',
-    }));
+    expect(dialog.showSaveDialog).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({
+        defaultPath: '周报-2026年第33周.txt',
+      }),
+    );
     expect(agent.generateReport).toHaveBeenCalledWith(snapshot.groups[0]?.tasks, {
       isoYear: 2026,
       isoWeek: 33,

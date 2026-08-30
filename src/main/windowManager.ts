@@ -1,6 +1,7 @@
 import { BrowserWindow, screen, type Rectangle } from 'electron';
 import path from 'node:path';
 import {
+  COLLAPSED_NOTE_HEIGHT,
   DEFAULT_NOTE_HEIGHT,
   DEFAULT_NOTE_WIDTH,
   MIN_NOTE_HEIGHT,
@@ -42,6 +43,8 @@ export class WindowManager {
   readonly #settingsCloseGuard = new SettingsCloseGuard();
   #boundsTimer: NodeJS.Timeout | null = null;
   #pendingReportGeneration = false;
+  #noteCollapsed = false;
+  #expandedNoteBounds: Rectangle | null = null;
 
   constructor(options: WindowManagerOptions) {
     this.#options = options;
@@ -114,6 +117,8 @@ export class WindowManager {
     });
     noteWindow.on('closed', () => {
       if (this.#noteWindow === noteWindow) this.#noteWindow = null;
+      this.#noteCollapsed = false;
+      this.#expandedNoteBounds = null;
     });
     noteWindow.on('move', () => this.#scheduleBoundsSave(noteWindow));
     noteWindow.on('resize', () => this.#scheduleBoundsSave(noteWindow));
@@ -220,6 +225,49 @@ export class WindowManager {
     window.focus();
   }
 
+  setFloatingNoteCollapsed(collapsed: boolean): boolean {
+    const window = this.#noteWindow;
+    if (!window || window.isDestroyed() || collapsed === this.#noteCollapsed) {
+      return this.#noteCollapsed;
+    }
+
+    if (this.#boundsTimer) {
+      clearTimeout(this.#boundsTimer);
+      this.#boundsTimer = null;
+    }
+
+    const current = window.getBounds();
+    if (collapsed) {
+      this.#expandedNoteBounds = current;
+      this.#noteCollapsed = true;
+      // 紧凑尺寸只属于当前会话；先保存完整尺寸，避免下次启动仍只有标题栏高度。
+      this.#options.config.setWindowBounds(current);
+      window.setMinimumSize(MIN_NOTE_WIDTH, COLLAPSED_NOTE_HEIGHT);
+      window.setResizable(false);
+      window.setBounds({ ...current, height: COLLAPSED_NOTE_HEIGHT }, true);
+      return true;
+    }
+
+    const expanded = this.#expandedNoteBounds ?? {
+      ...current,
+      height: DEFAULT_NOTE_HEIGHT,
+    };
+    this.#noteCollapsed = false;
+    this.#expandedNoteBounds = null;
+    window.setResizable(true);
+    window.setBounds(
+      {
+        x: current.x,
+        y: current.y,
+        width: expanded.width,
+        height: Math.max(expanded.height, MIN_NOTE_HEIGHT),
+      },
+      true,
+    );
+    window.setMinimumSize(MIN_NOTE_WIDTH, MIN_NOTE_HEIGHT);
+    return false;
+  }
+
   toggleFloatingNote(): void {
     if (this.isFloatingNoteVisible()) this.#noteWindow?.hide();
     else this.showFloatingNote();
@@ -282,7 +330,16 @@ export class WindowManager {
       clearTimeout(this.#boundsTimer);
       this.#boundsTimer = null;
     }
-    this.#options.config.setWindowBounds(window.getBounds());
+    const current = window.getBounds();
+    if (this.#noteCollapsed && this.#expandedNoteBounds) {
+      this.#options.config.setWindowBounds({
+        ...this.#expandedNoteBounds,
+        x: current.x,
+        y: current.y,
+      });
+      return;
+    }
+    this.#options.config.setWindowBounds(current);
   }
 
   closeAll(): void {
@@ -336,6 +393,7 @@ export class WindowManager {
   }
 
   #scheduleBoundsSave(window: BrowserWindow): void {
+    if (this.#noteCollapsed) return;
     // resize/move 会高频触发，防抖后再交给 ConfigService 持久化。
     if (this.#boundsTimer) clearTimeout(this.#boundsTimer);
     this.#boundsTimer = setTimeout(() => {

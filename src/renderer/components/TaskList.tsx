@@ -9,13 +9,17 @@ export function TaskList({
   onEdit,
   onDelete,
   addedDateDisplay = 'hover',
+  activeEditingKey,
+  onEditingChange,
 }: {
   tasks: TodayTaskView[];
   disabled?: boolean | undefined;
   onToggle: (locator: TodayTaskView['locator']) => void;
-  onEdit: (task: TodayTaskView, content: string) => Promise<boolean> | boolean;
+  onEdit: (task: TodayTaskView, content: string, details: string) => Promise<boolean> | boolean;
   onDelete: (locator: TodayTaskView['locator']) => void;
   addedDateDisplay?: AddedDateDisplay;
+  activeEditingKey?: string | null;
+  onEditingChange?: (taskKey: string | null) => void;
 }) {
   if (tasks.length === 0) {
     return (
@@ -30,14 +34,17 @@ export function TaskList({
       {tasks.map((task) => (
         <TaskItem
           completed={false}
+          activeEditingKey={activeEditingKey}
           addedDate={task.addedDate}
           addedDateDisplay={addedDateDisplay}
           content={task.content}
+          details={task.details}
           disabled={disabled}
           key={`${task.locator.revision}:${task.locator.line}`}
           locator={task.locator}
           onDelete={onDelete}
-          onEdit={(_, content) => onEdit(task, content)}
+          onEditingChange={onEditingChange}
+          onEdit={(_, content, details) => onEdit(task, content, details)}
           onToggle={onToggle}
         />
       ))}

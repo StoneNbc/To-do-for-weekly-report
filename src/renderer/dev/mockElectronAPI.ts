@@ -33,12 +33,48 @@ export const mockTodaySnapshot: TodaySnapshot = {
   currentDate: '2026-08-13',
   revision: 'today-r1',
   tasks: [
-    { locator: locator(1), content: '准备周会材料', completed: false, addedDate: '2026-08-10' },
-    { locator: locator(2), content: '回复客户邮件', completed: true, completedAt: '14:20' },
-    { locator: locator(3), content: '重复记录', completed: true, completedAt: '09:30' },
-    { locator: locator(4), content: '重复记录', completed: true, completedAt: '09:30' },
-    { locator: locator(5), content: '整理需求列表', completed: true, completedAt: '16:05' },
-    { locator: locator(6), content: '补充测试场景', completed: true, completedAt: '17:10' },
+    {
+      locator: locator(1),
+      content: '准备周会材料',
+      details: '确认议程\n整理上周遗留问题',
+      completed: false,
+      addedDate: '2026-08-10',
+    },
+    {
+      locator: locator(2),
+      content: '回复客户邮件',
+      details: '',
+      completed: true,
+      completedAt: '14:20',
+    },
+    {
+      locator: locator(3),
+      content: '重复记录',
+      details: '',
+      completed: true,
+      completedAt: '09:30',
+    },
+    {
+      locator: locator(4),
+      content: '重复记录',
+      details: '',
+      completed: true,
+      completedAt: '09:30',
+    },
+    {
+      locator: locator(5),
+      content: '整理需求列表',
+      details: '',
+      completed: true,
+      completedAt: '16:05',
+    },
+    {
+      locator: locator(6),
+      content: '补充测试场景',
+      details: '',
+      completed: true,
+      completedAt: '17:10',
+    },
   ],
   warnings: [],
 };
@@ -51,6 +87,7 @@ export const mockHistoricalSnapshot: DayRecordSnapshot = {
       locator: locator(4, 'week-r1'),
       date: '2026-08-12',
       content: '完成界面原型',
+      details: '核对最小窗口布局',
       completedAt: '15:30',
     },
   ],
@@ -152,7 +189,8 @@ export function createMockElectronAPI(
       ...clone(today),
       tasks: today.tasks.filter(
         (task) =>
-          !task.completed && (task.addedDate === undefined || task.addedDate.localeCompare(date) <= 0),
+          !task.completed &&
+          (task.addedDate === undefined || task.addedDate.localeCompare(date) <= 0),
       ),
     },
     completed:
@@ -161,6 +199,7 @@ export function createMockElectronAPI(
         : { date, revision: 'empty-week', tasks: [], warnings: [] },
   });
 
+  let noteCollapsed = false;
   const api = {
     async healthCheck() {
       return { status: 'ok' as const };
@@ -176,7 +215,12 @@ export function createMockElectronAPI(
         if (failure) return failure;
         today = nextTodaySnapshot([
           ...today.tasks,
-          { locator: locator(today.tasks.length + 1, today.revision), content, completed: false },
+          {
+            locator: locator(today.tasks.length + 1, today.revision),
+            content,
+            details: '',
+            completed: false,
+          },
         ]);
         return { ok: true as const, data: clone(today) };
       },
@@ -187,7 +231,11 @@ export function createMockElectronAPI(
           today.tasks.map((task) =>
             task.locator.line === target.line
               ? task.completed
-                ? { locator: task.locator, content: task.content, completed: false }
+                ? (() => {
+                    const pending = { ...task };
+                    delete pending.completedAt;
+                    return { ...pending, completed: false };
+                  })()
                 : { ...task, completed: true, completedAt: '18:20' }
               : task,
           ),
@@ -197,6 +245,7 @@ export function createMockElectronAPI(
       async edit(input: {
         locator: { line: number; revision: string };
         content: string;
+        details: string;
         completedAt?: string;
       }) {
         const failure = failureForScenario<TodaySnapshot>();
@@ -205,8 +254,13 @@ export function createMockElectronAPI(
           today.tasks.map((task) =>
             task.locator.line === input.locator.line
               ? input.completedAt
-                ? { ...task, content: input.content, completedAt: input.completedAt }
-                : { ...task, content: input.content }
+                ? {
+                    ...task,
+                    content: input.content,
+                    details: input.details,
+                    completedAt: input.completedAt,
+                  }
+                : { ...task, content: input.content, details: input.details }
               : task,
           ),
         );
@@ -233,6 +287,7 @@ export function createMockElectronAPI(
           {
             locator: locator(today.tasks.length + 1, today.revision),
             content: input.content,
+            details: '',
             completed: false,
             addedDate: input.date,
           },
@@ -243,20 +298,20 @@ export function createMockElectronAPI(
         date: string;
         locator: { line: number; revision: string };
         content: string;
+        details: string;
       }) {
         const failure = failureForScenario<HistoryViewSnapshot>();
         if (failure) return failure;
         today = nextTodaySnapshot(
           today.tasks.map((task) =>
-            task.locator.line === input.locator.line ? { ...task, content: input.content } : task,
+            task.locator.line === input.locator.line
+              ? { ...task, content: input.content, details: input.details }
+              : task,
           ),
         );
         return { ok: true as const, data: historyView(input.date) };
       },
-      async deletePending(input: {
-        date: string;
-        locator: { line: number; revision: string };
-      }) {
+      async deletePending(input: { date: string; locator: { line: number; revision: string } }) {
         const failure = failureForScenario<HistoryViewSnapshot>();
         if (failure) return failure;
         today = nextTodaySnapshot(
@@ -264,13 +319,12 @@ export function createMockElectronAPI(
         );
         return { ok: true as const, data: historyView(input.date) };
       },
-      async completePending(input: {
-        date: string;
-        locator: { line: number; revision: string };
-      }) {
+      async completePending(input: { date: string; locator: { line: number; revision: string } }) {
         const failure = failureForScenario<HistoryViewSnapshot>();
         if (failure) return failure;
-        const task = today.tasks.find((candidate) => candidate.locator.line === input.locator.line)!;
+        const task = today.tasks.find(
+          (candidate) => candidate.locator.line === input.locator.line,
+        )!;
         today = nextTodaySnapshot(
           today.tasks.filter((candidate) => candidate.locator.line !== input.locator.line),
         );
@@ -281,6 +335,7 @@ export function createMockElectronAPI(
               locator: locator(history.tasks.length + 5, history.revision),
               date: input.date,
               content: task.content,
+              details: task.details,
               ...(task.addedDate ? { addedDate: task.addedDate } : {}),
             },
           ],
@@ -288,13 +343,12 @@ export function createMockElectronAPI(
         );
         return { ok: true as const, data: historyView(input.date) };
       },
-      async reopenCompleted(input: {
-        date: string;
-        locator: { line: number; revision: string };
-      }) {
+      async reopenCompleted(input: { date: string; locator: { line: number; revision: string } }) {
         const failure = failureForScenario<HistoryViewSnapshot>();
         if (failure) return failure;
-        const task = history.tasks.find((candidate) => candidate.locator.line === input.locator.line)!;
+        const task = history.tasks.find(
+          (candidate) => candidate.locator.line === input.locator.line,
+        )!;
         history = nextHistorySnapshot(
           history.tasks.filter((candidate) => candidate.locator.line !== input.locator.line),
           input.date,
@@ -304,6 +358,7 @@ export function createMockElectronAPI(
           {
             locator: locator(today.tasks.length + 1, today.revision),
             content: task.content,
+            details: task.details,
             completed: false,
             ...(task.addedDate ? { addedDate: task.addedDate } : {}),
           },
@@ -314,6 +369,7 @@ export function createMockElectronAPI(
         date: string;
         locator: { line: number; revision: string };
         content: string;
+        details: string;
         completedAt?: string;
       }) {
         const failure = failureForScenario<HistoryViewSnapshot>();
@@ -322,8 +378,17 @@ export function createMockElectronAPI(
           history.tasks.map((task) =>
             task.locator.line === input.locator.line
               ? input.completedAt
-                ? { ...task, content: input.content, completedAt: input.completedAt }
-                : { locator: task.locator, date: task.date, content: input.content }
+                ? {
+                    ...task,
+                    content: input.content,
+                    details: input.details,
+                    completedAt: input.completedAt,
+                  }
+                : (() => {
+                    const withoutTime = { ...task };
+                    delete withoutTime.completedAt;
+                    return { ...withoutTime, content: input.content, details: input.details };
+                  })()
               : task,
           ),
         );
@@ -386,6 +451,10 @@ export function createMockElectronAPI(
       async openWeekly() {},
       async generateCurrentWeekReport() {},
       async showNote() {},
+      async setNoteCollapsed(collapsed: boolean) {
+        noteCollapsed = collapsed;
+        return noteCollapsed;
+      },
       async openSettings() {},
       async setSettingsDirty() {},
       async discardSettingsChangesAndClose() {},

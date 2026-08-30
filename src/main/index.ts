@@ -277,6 +277,10 @@ const registerPlatformHandlers = (
     await windows.requestCurrentWeekReportGeneration();
   });
   ipcMain.handle(IPC.windowShowNote, () => windows.showFloatingNote());
+  ipcMain.handle(IPC.windowSetNoteCollapsed, (_event, collapsed: unknown) => {
+    if (typeof collapsed !== 'boolean') throw new RangeError('便利贴收起状态必须是布尔值');
+    return windows.setFloatingNoteCollapsed(collapsed);
+  });
   ipcMain.handle(IPC.windowOpenSettings, async () => {
     await windows.openSettings();
   });

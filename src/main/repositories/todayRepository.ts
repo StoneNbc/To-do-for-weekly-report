@@ -4,10 +4,14 @@ import {
   assertValidIsoDate,
   assertValidLocalTime,
   assertValidTaskContent,
+  assertValidTaskDetails,
 } from '../../shared/validation';
 import {
+  createTodayTaskDetailNodes,
   formatTodayTask,
+  getTodayTaskBlockEnd,
   parseToday,
+  readTodayTaskDetails,
   reindexTodayNodes,
   serializeToday,
   type TodayDocument,
@@ -46,6 +50,7 @@ export interface TodayAddResult extends TodayReadResult {
 
 export interface TodayTaskChanges {
   content?: string;
+  details?: string;
   completed?: boolean;
   completedAt?: string | null;
 }
@@ -78,8 +83,10 @@ export class TodayRepository {
     content: string,
     expectedRevision: string | null = null,
     addedDate?: string,
+    details = '',
   ): Promise<TodayAddResult> {
     const normalized = assertValidTaskContent(content);
+    const normalizedDetails = assertValidTaskDetails(details);
     if (addedDate !== undefined) assertValidIsoDate(addedDate);
     const result = await this.store.update(this.path, expectedRevision, (file) => {
       const document = parseToday(file.text, { file: this.path });
@@ -98,8 +105,17 @@ export class TodayRepository {
       );
       const header = document.nodes.findIndex((node) => node.kind === 'header');
       const insertion =
-        lastTask >= 0 ? lastTask + 1 : header >= 0 ? header + 1 : document.nodes.length;
-      document.nodes.splice(insertion, 0, newNode);
+        lastTask >= 0
+          ? getTodayTaskBlockEnd(document.nodes, lastTask)
+          : header >= 0
+            ? header + 1
+            : document.nodes.length;
+      document.nodes.splice(
+        insertion,
+        0,
+        newNode,
+        ...createTodayTaskDetailNodes(normalizedDetails, insertion + 1),
+      );
       reindexTodayNodes(document.nodes);
       return { text: serializeToday(document), result: newNode.line };
     });
@@ -119,6 +135,8 @@ export class TodayRepository {
 
       const content =
         changes.content === undefined ? node.content : assertValidTaskContent(changes.content);
+      const details =
+        changes.details === undefined ? undefined : assertValidTaskDetails(changes.details);
       const completed = changes.completed ?? node.completed;
       // undefined 表示“不修改”，null 表示“明确移除”，用于撤销完成状态。
       let completedAt =
@@ -130,6 +148,15 @@ export class TodayRepository {
       if (completedAt === undefined) delete node.completedAt;
       else node.completedAt = completedAt;
       node.raw = formatTodayTask(content, completed, node.addedDate, completedAt);
+      if (details !== undefined) {
+        const blockEnd = getTodayTaskBlockEnd(document.nodes, locator.line);
+        document.nodes.splice(
+          locator.line + 1,
+          blockEnd - locator.line - 1,
+          ...createTodayTaskDetailNodes(details, locator.line + 1),
+        );
+        reindexTodayNodes(document.nodes);
+      }
       return { text: serializeToday(document), result: undefined };
     });
     return this.fromFile(result.snapshot);
@@ -140,7 +167,10 @@ export class TodayRepository {
       const document = parseToday(file.text, { file: this.path });
       const node = document.nodes[locator.line];
       if (!node || node.kind !== 'task') throw new TaskLineNotFoundError(locator.line);
-      document.nodes.splice(locator.line, 1);
+      document.nodes.splice(
+        locator.line,
+        getTodayTaskBlockEnd(document.nodes, locator.line) - locator.line,
+      );
       reindexTodayNodes(document.nodes);
       return { text: serializeToday(document), result: undefined };
     });
@@ -158,8 +188,20 @@ export class TodayRepository {
       header.date = targetDate;
       header.raw = `# ${targetDate}`;
       document.fileDate = targetDate;
-      // 跨日只移除已完成任务；未完成任务和无法识别的行会无限顺延。
-      document.nodes = document.nodes.filter((node) => node.kind !== 'task' || !node.completed);
+      // 跨日以任务块为单位移除已完成项；未完成任务详情与未知行继续顺延。
+      const retained = [] as typeof document.nodes;
+      for (let index = 0; index < document.nodes.length;) {
+        const node = document.nodes[index]!;
+        if (node.kind !== 'task') {
+          retained.push(node);
+          index += 1;
+          continue;
+        }
+        const blockEnd = getTodayTaskBlockEnd(document.nodes, index);
+        if (!node.completed) retained.push(...document.nodes.slice(index, blockEnd));
+        index = blockEnd;
+      }
+      document.nodes = retained;
       reindexTodayNodes(document.nodes);
       return { text: serializeToday(document), result: undefined };
     });
@@ -168,19 +210,19 @@ export class TodayRepository {
 
   private fromFile(file: TextFileSnapshot): TodayReadResult {
     const document = parseToday(file.text, { file: this.path });
-    const tasks: TodayTaskView[] = document.nodes
-      .filter((node): node is TodayTaskNode => node.kind === 'task')
-      .map((node) => {
-        const task: TodayTaskView = {
-          // 正文不是身份：重复任务依靠 revision + line 保持独立。
-          locator: { line: node.line, revision: file.revision },
-          content: node.content,
-          completed: node.completed,
-        };
-        if (node.addedDate !== undefined) task.addedDate = node.addedDate;
-        if (node.completedAt !== undefined) task.completedAt = node.completedAt;
-        return task;
-      });
+    const tasks: TodayTaskView[] = document.nodes.flatMap((node, index) => {
+      if (node.kind !== 'task') return [];
+      const task: TodayTaskView = {
+        // 正文不是身份：重复任务依靠 revision + line 保持独立。
+        locator: { line: node.line, revision: file.revision },
+        content: node.content,
+        details: readTodayTaskDetails(document.nodes, index),
+        completed: node.completed,
+      };
+      if (node.addedDate !== undefined) task.addedDate = node.addedDate;
+      if (node.completedAt !== undefined) task.completedAt = node.completedAt;
+      return [task];
+    });
     return {
       file,
       document,

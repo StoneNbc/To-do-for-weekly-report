@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { parseToday, serializeToday } from '../../../src/main/parsers/todayParser';
+import {
+  parseToday,
+  readTodayTaskDetails,
+  serializeToday,
+} from '../../../src/main/parsers/todayParser';
 
 describe('todayParser', () => {
   it('keeps duplicate tasks as separate line-addressable nodes', () => {
@@ -57,5 +61,29 @@ describe('todayParser', () => {
     const task = parsed.nodes.find((node) => node.kind === 'task');
     expect(task?.kind === 'task' && task.content).toBe('工作 @添加:2026-99-99');
     expect(parsed.warnings.map((warning) => warning.code)).toContain('INVALID_ADDED_DATE');
+  });
+
+  it('parses explicit detail lines as plain text without creating extra tasks', () => {
+    const source =
+      '# 2026-08-13\n- [ ] 主任务\n  | 第一步\n  |\n  | - [ ] 只是说明\n  | 1. 也只是说明\n- [ ] 第二个任务\n';
+    const parsed = parseToday(source);
+    const taskIndexes = parsed.nodes.flatMap((node, index) =>
+      node.kind === 'task' ? [index] : [],
+    );
+
+    expect(taskIndexes).toHaveLength(2);
+    expect(readTodayTaskDetails(parsed.nodes, taskIndexes[0]!)).toBe(
+      '第一步\n\n- [ ] 只是说明\n1. 也只是说明',
+    );
+    expect(serializeToday(parsed)).toBe(source);
+  });
+
+  it('preserves an orphan detail-shaped line as unknown content', () => {
+    const source = '# 2026-08-13\n  | 没有关联任务\n- [ ] 正常任务\n';
+    const parsed = parseToday(source);
+
+    expect(parsed.nodes[1]).toMatchObject({ kind: 'unknown', raw: '  | 没有关联任务' });
+    expect(parsed.warnings.map((item) => item.code)).toContain('UNKNOWN_LINE');
+    expect(serializeToday(parsed)).toBe(source);
   });
 });

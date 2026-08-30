@@ -22,6 +22,39 @@ function renderPage(scenario: Parameters<typeof createMockElectronAPI>[0] = 'def
 }
 
 describe('FloatingNotePage', () => {
+  it('收起时只保留标题栏，并可恢复完整便利贴', async () => {
+    const controller = renderPage();
+    const setNoteCollapsed = vi.spyOn(controller.api.window, 'setNoteCollapsed');
+    await screen.findByRole('list', { name: '待完成事项' });
+    const note = screen.getByRole('main');
+    expect(note).toHaveClass('p-3');
+
+    fireEvent.click(screen.getByRole('button', { name: '收起便利贴' }));
+    await waitFor(() => expect(setNoteCollapsed).toHaveBeenCalledWith(true));
+    expect(note).toHaveClass('p-3');
+    expect(screen.queryByRole('list', { name: '待完成事项' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: '添加待办' })).toBeNull();
+    expect(screen.getByRole('button', { name: '打开便利贴菜单' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '展开便利贴' }));
+    await waitFor(() => expect(setNoteCollapsed).toHaveBeenLastCalledWith(false));
+    expect(await screen.findByRole('list', { name: '待完成事项' })).toBeInTheDocument();
+  });
+
+  it('收起后保留菜单按钮，点击时恢复窗口并打开菜单', async () => {
+    const controller = renderPage();
+    const setNoteCollapsed = vi.spyOn(controller.api.window, 'setNoteCollapsed');
+    await screen.findByRole('list', { name: '待完成事项' });
+
+    fireEvent.click(screen.getByRole('button', { name: '收起便利贴' }));
+    await screen.findByRole('button', { name: '展开便利贴' });
+    fireEvent.click(screen.getByRole('button', { name: '打开便利贴菜单' }));
+
+    await waitFor(() => expect(setNoteCollapsed).toHaveBeenLastCalledWith(false));
+    expect(await screen.findByRole('menu')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '收起便利贴' })).toBeInTheDocument();
+  });
+
   it('opens the settings window from the enabled note menu', async () => {
     const controller = renderPage();
     const openSettings = vi.spyOn(controller.api.window, 'openSettings');
@@ -80,6 +113,7 @@ describe('FloatingNotePage', () => {
       expect(edit).toHaveBeenCalledWith({
         locator: expect.objectContaining({ line: 2 }),
         content: '回复重点客户邮件',
+        details: '',
         completedAt: '14:20',
       }),
     );
@@ -87,6 +121,23 @@ describe('FloatingNotePage', () => {
     fireEvent.click(await screen.findByRole('button', { name: '删除任务：回复重点客户邮件' }));
     await waitFor(() => expect(remove).toHaveBeenCalledWith(expect.objectContaining({ line: 2 })));
     expect(screen.queryByText('回复重点客户邮件')).not.toBeInTheDocument();
+  });
+
+  it('同一时间只保留一个任务编辑器', async () => {
+    renderPage();
+    await screen.findByRole('list', { name: '待完成事项' });
+
+    fireEvent.keyDown(screen.getByRole('button', { name: '任务内容：准备周会材料' }), {
+      key: 'F2',
+    });
+    expect(screen.getByRole('textbox', { name: '编辑任务：准备周会材料' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /已完成（5）/ }));
+    fireEvent.keyDown(screen.getByRole('button', { name: '任务内容：回复客户邮件' }), {
+      key: 'F2',
+    });
+    expect(screen.queryByRole('textbox', { name: '编辑任务：准备周会材料' })).toBeNull();
+    expect(screen.getByRole('textbox', { name: '编辑任务：回复客户邮件' })).toBeInTheDocument();
   });
 
   it('变更成功后抑制一次自身 app-write watcher 回声', async () => {
@@ -155,6 +206,7 @@ describe('FloatingNotePage', () => {
         date: '2026-08-12',
         locator: expect.objectContaining({ line: 4 }),
         content: '完成最终界面原型',
+        details: '核对最小窗口布局',
         completedAt: '16:45',
       }),
     );
@@ -182,7 +234,9 @@ describe('FloatingNotePage', () => {
         locator: expect.objectContaining({ line: 1 }),
       }),
     );
-    expect(screen.queryByRole('checkbox', { name: '完成任务：准备周会材料' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('checkbox', { name: '完成任务：准备周会材料' }),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('checkbox', { name: '撤销完成：完成界面原型' }));
     await waitFor(() =>
@@ -191,7 +245,9 @@ describe('FloatingNotePage', () => {
         locator: expect.objectContaining({ line: 4 }),
       }),
     );
-    expect(await screen.findByRole('checkbox', { name: '完成任务：完成界面原型' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('checkbox', { name: '完成任务：完成界面原型' }),
+    ).toBeInTheDocument();
   });
 
   it('FILE_CHANGED 时载入最新快照并提示用户重新操作', async () => {
@@ -234,6 +290,7 @@ describe('FloatingNotePage', () => {
             {
               locator: { line: 7, revision: 'today-after-partial-failure' },
               content: '磁盘刷新后的待办',
+              details: '',
               completed: false,
               addedDate: '2026-08-10',
             },
@@ -293,10 +350,7 @@ describe('FloatingNotePage', () => {
 
   it('菜单周报入口打开统一生成流程，不绕过预览和远程发送确认', async () => {
     const controller = renderPage();
-    const generateCurrentWeekReport = vi.spyOn(
-      controller.api.window,
-      'generateCurrentWeekReport',
-    );
+    const generateCurrentWeekReport = vi.spyOn(controller.api.window, 'generateCurrentWeekReport');
     const exportReport = vi.spyOn(controller.api.report, 'export');
     await screen.findByRole('list', { name: '待完成事项' });
     const menuButton = screen.getByRole('button', { name: '打开便利贴菜单' });

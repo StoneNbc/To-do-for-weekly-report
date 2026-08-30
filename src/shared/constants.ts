@@ -4,6 +4,7 @@ export const DEFAULT_NOTE_WIDTH = 320;
 export const DEFAULT_NOTE_HEIGHT = 400;
 export const MIN_NOTE_WIDTH = 280;
 export const MIN_NOTE_HEIGHT = 280;
+export const COLLAPSED_NOTE_HEIGHT = 64;
 export const DEFAULT_NOTE_COLOR = '#FFF8E7';
 export const DEFAULT_NOTE_OPACITY = 1;
 export const MIN_NOTE_OPACITY = 0.6;

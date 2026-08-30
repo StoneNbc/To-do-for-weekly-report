@@ -33,6 +33,8 @@ export interface ParseWarning {
 export interface TodayTaskView {
   locator: TaskLocator;
   content: string;
+  /** 普通多行说明；不是子任务，不参与完成统计。 */
+  details: string;
   completed: boolean;
   addedDate?: IsoDate;
   completedAt?: LocalTime;
@@ -42,6 +44,8 @@ export interface HistoricalTaskView {
   locator: TaskLocator;
   date: IsoDate;
   content: string;
+  /** 从 today.txt 随任务归档的普通多行说明。 */
+  details: string;
   addedDate?: IsoDate;
   completedAt?: LocalTime;
 }

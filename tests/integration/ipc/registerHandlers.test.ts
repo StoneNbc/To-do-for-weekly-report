@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { IpcMain } from 'electron';
-import type { HistoryViewSnapshot, TodaySnapshot, WeeklySnapshot } from '../../../src/shared/domain';
+import type {
+  HistoryViewSnapshot,
+  TodaySnapshot,
+  WeeklySnapshot,
+} from '../../../src/shared/domain';
 import { IPC } from '../../../src/main/ipc/channels';
 import { registerBusinessHandlers } from '../../../src/main/ipc/registerHandlers';
 import type { AppLogger } from '../../../src/main/logging/logger';
@@ -84,11 +88,50 @@ describe('business IPC registration', () => {
     expect(task.addTodayTask).not.toHaveBeenCalled();
   });
 
+  it('validates and forwards multiline details when editing today', async () => {
+    const { handlers, task } = setup();
+    const locator = { line: 1, revision: 'revision-current' };
+
+    const valid = await handlers.get(IPC.todayEdit)?.(
+      {},
+      {
+        locator,
+        content: '编辑后的标题',
+        details: '第一行\n\n- [ ] 普通说明',
+        completedAt: '09:30',
+      },
+    );
+    const invalid = await handlers.get(IPC.todayEdit)?.(
+      {},
+      {
+        locator,
+        content: '标题',
+        details: '包含\0非法字符',
+      },
+    );
+
+    expect(valid).toEqual({ ok: true, data: snapshot });
+    expect(task.editTodayTask).toHaveBeenCalledWith(
+      locator,
+      '编辑后的标题',
+      '第一行\n\n- [ ] 普通说明',
+      '09:30',
+    );
+    expect(invalid).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
+    expect(task.editTodayTask).toHaveBeenCalledTimes(1);
+  });
+
   it('passes only a validated ISO week to the weekly service', async () => {
     const { handlers, weekly } = setup();
 
-    const invalid = await handlers.get(IPC.weekGet)?.({}, { isoYear: 2026, isoWeek: 54, path: '/tmp/escape' });
-    const valid = await handlers.get(IPC.weekGet)?.({}, { isoYear: 2026, isoWeek: 33, path: '/tmp/ignored' });
+    const invalid = await handlers.get(IPC.weekGet)?.(
+      {},
+      { isoYear: 2026, isoWeek: 54, path: '/tmp/escape' },
+    );
+    const valid = await handlers.get(IPC.weekGet)?.(
+      {},
+      { isoYear: 2026, isoWeek: 33, path: '/tmp/ignored' },
+    );
 
     expect(invalid).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
     expect(valid).toEqual({ ok: true, data: weeklySnapshot });
@@ -98,7 +141,9 @@ describe('business IPC registration', () => {
 
   it('maps known service errors without returning a stack', async () => {
     const { handlers, task } = setup();
-    const error = Object.assign(new Error('数据文件已更新，请刷新后重试'), { code: 'FILE_CHANGED' });
+    const error = Object.assign(new Error('数据文件已更新，请刷新后重试'), {
+      code: 'FILE_CHANGED',
+    });
     task.toggleTodayTask.mockRejectedValueOnce(error);
 
     const result = await handlers.get(IPC.todayToggle)?.({}, { line: 1, revision: 'old-revision' });
@@ -113,12 +158,7 @@ describe('business IPC registration', () => {
   it('never accepts an output or data path in business handlers', () => {
     const { handlers } = setup();
     expect([...handlers.keys()]).toEqual(
-      expect.arrayContaining([
-        IPC.todayGet,
-        IPC.todayAdd,
-        IPC.historyGetView,
-        IPC.weekGet,
-      ]),
+      expect.arrayContaining([IPC.todayGet, IPC.todayAdd, IPC.historyGetView, IPC.weekGet]),
     );
     expect([...handlers.keys()]).not.toContain('file:write-path');
   });
