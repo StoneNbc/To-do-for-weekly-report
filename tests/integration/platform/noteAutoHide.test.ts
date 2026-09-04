@@ -54,25 +54,25 @@ describe('note edge auto-hide geometry', () => {
     ).toEqual({ x: 1_120, y: 24, width: 320, height: 400 });
   });
 
-  it('keeps only a four-DIP strip at each supported edge', () => {
+  it('keeps only a two-DIP strip at each supported edge', () => {
     const visible = { x: 0, y: 100, width: 320, height: 400 };
     expect(getHiddenNoteBounds(visible, primary.workArea, 'left')).toEqual({
-      x: -316,
+      x: 0,
       y: 100,
-      width: 320,
+      width: 2,
       height: 400,
     });
     expect(getHiddenNoteBounds({ ...visible, x: 1_120 }, primary.workArea, 'right')).toEqual({
-      x: 1_436,
+      x: 1_438,
       y: 100,
-      width: 320,
+      width: 2,
       height: 400,
     });
     expect(getHiddenNoteBounds({ ...visible, x: 500, y: 24 }, primary.workArea, 'top')).toEqual({
       x: 500,
       y: 24,
       width: 320,
-      height: 4,
+      height: 2,
     });
   });
 

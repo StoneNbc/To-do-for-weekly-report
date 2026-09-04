@@ -54,8 +54,7 @@ textarea,
 .note-edge-reveal {
   position: fixed;
   z-index: 50;
-  background: var(--note-accent);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--note-fg) 25%, transparent);
+  background: var(--note-edge-reveal-color);
 }
 
 .note-edge-reveal-left {

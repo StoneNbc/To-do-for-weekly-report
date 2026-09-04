@@ -116,6 +116,9 @@ const electronMocks = vi.hoisted(() => {
     focus(): void {
       MockBrowserWindow.focused = this;
     }
+    showInactive(): void {
+      this.visible = true;
+    }
     blur(): void {
       if (MockBrowserWindow.focused === this) MockBrowserWindow.focused = null;
     }
@@ -211,13 +214,17 @@ describe('WindowManager note auto-hide', () => {
 
     await vi.advanceTimersByTimeAsync(500);
     expect(manager.getNoteDockState()).toEqual({ edge: 'left', phase: 'hidden' });
-    expect(window.getBounds()).toEqual({ x: -316, y: 100, width: 320, height: 400 });
+    expect(window.getBounds()).toEqual({ x: 0, y: 100, width: 2, height: 400 });
+    expect(window.minimumSize).toEqual({ width: 2, height: 2 });
+    expect(window.resizable).toBe(false);
     expect(config.snapshot().window_bounds).toEqual({ x: 0, y: 100, width: 320, height: 400 });
 
     electronMocks.setCursorPoint({ x: 1, y: 110 });
     manager.setNoteInteractionState({ pointerInside: true, autoHideBlocked: false });
     expect(manager.getNoteDockState()).toEqual({ edge: 'left', phase: 'docked-visible' });
     expect(window.getBounds()).toEqual({ x: 0, y: 100, width: 320, height: 400 });
+    expect(window.minimumSize).toEqual({ width: 280, height: 280 });
+    expect(window.resizable).toBe(true);
     manager.closeAll();
   });
 
@@ -242,7 +249,7 @@ describe('WindowManager note auto-hide', () => {
     manager.closeAll();
   });
 
-  it('uses a four-DIP top strip and fully restores when the setting is disabled', async () => {
+  it('uses a two-DIP top strip and fully restores when the setting is disabled', async () => {
     const config = makeConfig({ x: 500, y: 24, width: 320, height: 400 });
     const manager = new WindowManager({
       config: config as unknown as ConfigService,
@@ -257,8 +264,8 @@ describe('WindowManager note auto-hide', () => {
     >;
     await vi.advanceTimersByTimeAsync(500);
     expect(manager.getNoteDockState()).toEqual({ edge: 'top', phase: 'hidden' });
-    expect(window.getBounds()).toEqual({ x: 500, y: 24, width: 320, height: 4 });
-    expect(window.minimumSize.height).toBe(4);
+    expect(window.getBounds()).toEqual({ x: 500, y: 24, width: 320, height: 2 });
+    expect(window.minimumSize.height).toBe(2);
     expect(window.resizable).toBe(false);
 
     config.update({ edge_auto_hide: false });
@@ -268,6 +275,7 @@ describe('WindowManager note auto-hide', () => {
       alwaysOnTop: true,
       showOnFullScreen: true,
       edgeAutoHideEnabled: false,
+      edgeRevealColor: '#92400E',
       completedExpanded: false,
       addedDateDisplay: 'hover',
       dataDirectory: '/safe/data',
@@ -362,6 +370,7 @@ describe('WindowManager note auto-hide', () => {
       alwaysOnTop: true,
       showOnFullScreen: false,
       edgeAutoHideEnabled: false,
+      edgeRevealColor: '#92400E',
       completedExpanded: false,
       addedDateDisplay: 'hover' as const,
       dataDirectory: '/safe/data',

@@ -13,6 +13,10 @@ export interface TrayManagerOptions {
   iconPath?: string;
 }
 
+/**
+ * 系统托盘管理器：创建托盘图标、设置右键菜单和点击行为。
+ * 图标文件损坏或缺失时回退到内嵌占位图，保证应用仍能进入托盘。
+ */
 export class TrayManager {
   readonly #options: TrayManagerOptions;
   #tray: Tray | null = null;

@@ -4,6 +4,11 @@ import { TaskLineNotFoundError, TodayRepository } from '../repositories/todayRep
 import { FileChangedError } from '../repositories/textFileStore';
 import { ArchiveService, SystemClock, type Clock } from './archiveService';
 
+/**
+ * 今日任务业务服务：查询、新增、完成/撤销、编辑、删除。
+ * 每次写操作前先补偿跨日（reconcileToToday），确保新任务写入正确的 today.txt；
+ * 完成时间��� Main 的 Clock 产生，Renderer 不提供可信时钟。
+ */
 export class TaskService {
   constructor(
     private readonly todayRepository: TodayRepository,

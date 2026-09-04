@@ -39,6 +39,7 @@ describe('SettingsService', () => {
       alwaysOnTop: false,
       showOnFullScreen: true,
       edgeAutoHideEnabled: true,
+      edgeRevealColor: '#0284C7',
     });
     expect(snapshot).toEqual({
       noteColor: '#E0F2FE',
@@ -46,6 +47,7 @@ describe('SettingsService', () => {
       alwaysOnTop: false,
       showOnFullScreen: false,
       edgeAutoHideEnabled: true,
+      edgeRevealColor: '#0284C7',
       completedExpanded: false,
       addedDateDisplay: 'hover',
       dataDirectory: '/safe/data',
@@ -57,6 +59,7 @@ describe('SettingsService', () => {
       always_on_top: false,
       show_on_fullscreen: false,
       edge_auto_hide: true,
+      edge_reveal_color: '#0284C7',
     });
   });
 

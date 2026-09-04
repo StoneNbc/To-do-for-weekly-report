@@ -20,6 +20,11 @@ export interface SchedulerOptions {
   ) => ScheduledTask;
 }
 
+/**
+ * 归档调度器：负责在启动补偿、每日零点（cron）和系统唤醒时触发跨日归档。
+ * 所有触发通���内部队列串行化，避免 cron 与唤醒事件靠得太近时重复进入业务归档；
+ * 后台失败只记录日志，不中断常驻应用。
+ */
 export class ArchiveScheduler {
   readonly #archive: ArchiveReconciler;
   readonly #powerMonitor: Pick<PowerMonitor, 'on' | 'removeListener'>;

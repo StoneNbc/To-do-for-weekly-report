@@ -8,6 +8,7 @@ import { llmConnectionSettingsSchema } from '../services/configService';
 import { MAX_TASK_DETAILS_LENGTH } from '../../shared/validation';
 
 // IPC 是安全边界：即使 Renderer 有 TypeScript 类型，Main 仍要验证运行时输入。
+// 所有进入 Main 的 Renderer 数据都先经过这里的 Zod schema 校验。
 export const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export const localTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 export const contentSchema = z
@@ -61,6 +62,10 @@ export const noteColorSchema = z
   .string()
   .transform(normalizeNoteColor)
   .refine(isValidNoteColor, { message: '便利贴颜色必须是六位十六进制色值' });
+export const edgeRevealColorSchema = z
+  .string()
+  .transform(normalizeNoteColor)
+  .refine(isValidNoteColor, { message: '隐藏提示条颜色必须是六位十六进制色值' });
 export const noteOpacitySchema = z.number().refine(isValidNoteOpacity, {
   message: '便利贴不透明度必须在 60% 到 100% 之间，并以 5% 为步进',
 });
@@ -78,6 +83,7 @@ export const settingsPatchSchema = appearancePreviewSchema
     alwaysOnTop: z.boolean().optional(),
     showOnFullScreen: z.boolean().optional(),
     edgeAutoHideEnabled: z.boolean().optional(),
+    edgeRevealColor: edgeRevealColorSchema.optional(),
     completedExpanded: z.boolean().optional(),
     addedDateDisplay: z.enum(['hover', 'always']).optional(),
   })

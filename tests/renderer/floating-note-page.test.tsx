@@ -27,7 +27,10 @@ describe('FloatingNotePage', () => {
     await screen.findByRole('list', { name: '待完成事项' });
 
     act(() => controller.emitNoteDockState({ edge: 'left', phase: 'hidden' }));
-    expect(screen.getByRole('main')).toHaveStyle({ '--note-edge-reveal-size': '4px' });
+    expect(screen.getByRole('main')).toHaveStyle({
+      '--note-edge-reveal-size': '2px',
+      '--note-edge-reveal-color': '#92400E',
+    });
     expect(screen.getByTestId('note-edge-reveal')).toHaveClass('note-edge-reveal-left');
     expect(screen.queryByRole('list', { name: '待完成事项' })).toBeNull();
 

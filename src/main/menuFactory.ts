@@ -1,5 +1,6 @@
 import { Menu, type MenuItemConstructorOptions } from 'electron';
 
+/** 桌面命令接口：菜单项通过它调用窗口、托盘和应用级操作，不直接依赖具体实现。 */
 export interface DesktopCommands {
   toggleNote(): void;
   showNote(): void;
@@ -13,6 +14,10 @@ export interface DesktopCommands {
   isAlwaysOnTop(): boolean;
 }
 
+/**
+ * 应用菜单工厂：为系统托盘和便利贴右键菜单构建统一的 Electron Menu。
+ * 每次调用都重新读取可见性和置顶状态，避免展示过期勾选值。
+ */
 export class MenuFactory {
   constructor(private readonly commands: DesktopCommands) {}
 

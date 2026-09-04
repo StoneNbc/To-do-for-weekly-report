@@ -31,6 +31,7 @@ import { useElectronAPI } from '../hooks/useElectronAPI';
 import { useRefreshQueue } from '../hooks/useRefreshQueue';
 import { createInitialNoteState, noteReducer, type NoteSnapshot } from '../state/noteReducer';
 import {
+  DEFAULT_EDGE_REVEAL_COLOR,
   DEFAULT_NOTE_COLOR,
   DEFAULT_NOTE_OPACITY,
   EDGE_REVEAL_SIZE,
@@ -41,6 +42,11 @@ function isTodaySnapshot(snapshot: NoteSnapshot | null): snapshot is TodaySnapsh
   return snapshot !== null && 'currentDate' in snapshot;
 }
 
+/**
+ * 悬浮便利贴主页面：展示今日/历史任务、已完成区、标题栏与菜单。
+ * 负责加载与刷新数据、把用户操作通过 ElectronAPI 提交给 Main，并处理
+ * 外部编辑事件、贴边自动隐藏状态与紧凑收起等桌面交互。
+ */
 export function FloatingNotePage() {
   const api = useElectronAPI();
   const today = getLocalDate();
@@ -51,6 +57,7 @@ export function FloatingNotePage() {
     noteColor: DEFAULT_NOTE_COLOR,
     noteOpacity: DEFAULT_NOTE_OPACITY,
   });
+  const [edgeRevealColor, setEdgeRevealColor] = useState(DEFAULT_EDGE_REVEAL_COLOR);
   const [exporting, setExporting] = useState(false);
   const requestTokenRef = useRef(0);
   const watcherEchoRef = useRef<{
@@ -98,6 +105,7 @@ export function FloatingNotePage() {
   const applySettings = useCallback((snapshot: SettingsSnapshot) => {
     setAlwaysOnTop(snapshot.alwaysOnTop);
     setAppearance({ noteColor: snapshot.noteColor, noteOpacity: snapshot.noteOpacity });
+    setEdgeRevealColor(snapshot.edgeRevealColor);
     setAddedDateDisplay(snapshot.addedDateDisplay);
     dispatch({ type: 'set-completed-expanded', expanded: snapshot.completedExpanded });
   }, []);
@@ -447,6 +455,7 @@ export function FloatingNotePage() {
     '--note-border': theme.border,
     '--note-accent': theme.accent,
     '--note-focus': theme.focus,
+    '--note-edge-reveal-color': edgeRevealColor,
     '--note-edge-reveal-size': `${EDGE_REVEAL_SIZE}px`,
   } as CSSProperties;
 

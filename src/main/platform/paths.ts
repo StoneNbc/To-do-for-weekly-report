@@ -1,5 +1,10 @@
 import path from 'node:path';
 
+/**
+ * 解析应用所有业务数据文件的路径。
+ * 打包环境固定使用 userData 下的受控目录；开发/测试环境可用环���变量覆盖，
+ * 便于测试隔离，但自定义目录不会在打包应用中生效。
+ */
 export interface AppPathProvider {
   readonly isPackaged: boolean;
   getPath(name: 'userData'): string;

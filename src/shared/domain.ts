@@ -202,6 +202,7 @@ export interface AppConfig {
   always_on_top: boolean;
   show_on_fullscreen: boolean;
   edge_auto_hide: boolean;
+  edge_reveal_color: string;
   window_bounds: WindowBounds | null;
   completed_expanded: boolean;
   added_date_display: AddedDateDisplay;
@@ -218,6 +219,7 @@ export interface SettingsSnapshot {
   alwaysOnTop: boolean;
   showOnFullScreen: boolean;
   edgeAutoHideEnabled: boolean;
+  edgeRevealColor: string;
   completedExpanded: boolean;
   addedDateDisplay: AddedDateDisplay;
   dataDirectory: string;
@@ -229,6 +231,7 @@ export interface SettingsPatch {
   alwaysOnTop?: boolean | undefined;
   showOnFullScreen?: boolean | undefined;
   edgeAutoHideEnabled?: boolean | undefined;
+  edgeRevealColor?: string | undefined;
   completedExpanded?: boolean | undefined;
   addedDateDisplay?: AddedDateDisplay | undefined;
 }

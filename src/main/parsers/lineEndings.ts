@@ -1,3 +1,8 @@
+/**
+ * 换行符与 BOM 的检测/编解码工具。
+ * 业务数据是用户可直接编辑的文本，换行风格与文件末尾是否有换行都属于
+ * 需要保真的内容，读写时必须显式保留。
+ */
 export type LineEnding = '\n' | '\r\n';
 
 export interface DecodedText {

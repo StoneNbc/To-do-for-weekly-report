@@ -18,6 +18,7 @@
   "always_on_top": true,
   "show_on_fullscreen": true,
   "edge_auto_hide": false,
+  "edge_reveal_color": "#92400E",
   "window_bounds": null,
   "completed_expanded": false,
   "added_date_display": "hover",

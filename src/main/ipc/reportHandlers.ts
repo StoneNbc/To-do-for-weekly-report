@@ -14,6 +14,11 @@ export interface RegisterReportHandlersOptions {
   logger: AppLogger;
 }
 
+/**
+ * 注册周报导出相关的 IPC handler。
+ * 导出使用三态结果（取消/成功/失败）；远程生成通过 requestId 关联 AbortController，
+ * 支持取消；打开/定位最近导出属于高权限 Shell 动作，只作用于授权路径。
+ */
 export const registerReportHandlers = ({
   ipcMain,
   reportService,

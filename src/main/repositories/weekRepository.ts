@@ -66,6 +66,10 @@ export interface HistoricalInsertResult {
   insertedLocator: TaskLocator;
 }
 
+/**
+ * 周文件（weeks/week-YYYY-Www.txt）的读写仓库。
+ * 负责历史补录、归档追加、历史任务编辑/删除，以及周视图/单日快照的组装。
+ */
 export class WeekRepository {
   constructor(
     readonly weeksDirectory: string,

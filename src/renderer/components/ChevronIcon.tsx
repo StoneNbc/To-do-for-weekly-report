@@ -1,3 +1,4 @@
+/** 纯展示的下拉/收起箭头图标；expanded 为 true 时旋转 180° 表示展开。 */
 export function ChevronIcon({ expanded }: { expanded: boolean }) {
   return (
     <svg

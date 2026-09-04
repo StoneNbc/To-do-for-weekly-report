@@ -27,6 +27,10 @@ describe('SettingsPage', () => {
       'true',
     );
     expect(screen.getByRole('slider', { name: '便利贴不透明度' })).toHaveValue('1');
+    expect(screen.getByRole('button', { name: '选择琥珀隐藏提示条' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     expect(screen.getByText('/本机/悬浮便利贴/data')).toBeInTheDocument();
   });
 
@@ -39,6 +43,9 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '选择天蓝便利贴' }));
     await waitFor(() => expect(update).toHaveBeenCalledWith({ noteColor: '#E0F2FE' }));
     expect(await screen.findByText('已保存')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '选择湖蓝隐藏提示条' }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ edgeRevealColor: '#0284C7' }));
 
     const slider = screen.getByRole('slider', { name: '便利贴不透明度' });
     fireEvent.change(slider, { target: { value: '0.8' } });

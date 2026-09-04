@@ -4,6 +4,10 @@ import type { AgentFactoryLogger } from './types';
 
 const silentLogger: AgentFactoryLogger = { warn: () => undefined };
 
+/**
+ * 根据配置创建对应的 ReportAgent。
+ * 未知配置安全回退到纯本地模板，避免因未来 Agent 缺失而阻断周报导出。
+ */
 export class AgentFactory {
   constructor(private readonly logger: AgentFactoryLogger = silentLogger) {}
 

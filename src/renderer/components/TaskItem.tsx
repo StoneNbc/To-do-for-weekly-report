@@ -25,6 +25,11 @@ export interface TaskItemProps {
   onDelete: (locator: TaskLocator) => void;
 }
 
+/**
+ * 单条任务的展示与编辑组件。
+ * 支持完成/撤销、双击或 F2 编辑标题与多行详情、可选编辑完成时间、展开/收起详情、
+ * 以及删除。编辑提交通过 onEdit 回调交给上层，只有保存成功才退出编辑态。
+ */
 export function TaskItem({
   locator,
   content,

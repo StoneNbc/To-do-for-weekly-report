@@ -1,3 +1,9 @@
+/**
+ * Renderer 测试用的 ElectronAPI 内存 Mock。
+ * 模拟 Main Process 的任务、历史、周记、设置和报告等操作，
+ * 支持多种场景（空周、文件冲突、IO 错误、导出取消等），
+ * 供组件测试通过 Provider 显式注入。生产环境绝不能使用此 Mock。
+ */
 import type { ElectronAPI } from '../../preload/apiTypes';
 import type {
   DataChangedEvent,
@@ -16,6 +22,7 @@ import type {
 } from '../../shared/domain';
 import type { ApiResult, ExportReportResult } from '../../shared/results';
 import {
+  DEFAULT_EDGE_REVEAL_COLOR,
   DEFAULT_LLM_SETTINGS,
   DEFAULT_REMOTE_REPORT_TEMPLATE,
   DEFAULT_REPORT_PROMPT,
@@ -116,6 +123,7 @@ export const mockWeeklySnapshot: WeeklySnapshot = {
   total: 3,
 };
 
+/** Mock 控制器：除了返回 api 外，还提供手动触发事件的方法，用于测试事件驱动场景。 */
 export interface MockElectronAPIController {
   api: ElectronAPI;
   emit(event: DataChangedEvent): void;
@@ -125,6 +133,7 @@ export interface MockElectronAPIController {
   getLastNoteInteractionState(): NoteInteractionState;
 }
 
+/** 根据指定场景创建 Mock ElectronAPI 及其事件控制器。 */
 export function createMockElectronAPI(
   scenario: MockScenario = 'default',
 ): MockElectronAPIController {
@@ -136,6 +145,7 @@ export function createMockElectronAPI(
     alwaysOnTop: true,
     showOnFullScreen: true,
     edgeAutoHideEnabled: false,
+    edgeRevealColor: DEFAULT_EDGE_REVEAL_COLOR,
     completedExpanded: false,
     addedDateDisplay: 'hover',
     dataDirectory: '/本机/悬浮便利贴/data',
@@ -513,6 +523,9 @@ export function createMockElectronAPI(
           ...(input.edgeAutoHideEnabled !== undefined
             ? { edgeAutoHideEnabled: input.edgeAutoHideEnabled }
             : {}),
+          ...(input.edgeRevealColor !== undefined
+            ? { edgeRevealColor: input.edgeRevealColor }
+            : {}),
           ...(input.completedExpanded !== undefined
             ? { completedExpanded: input.completedExpanded }
             : {}),
@@ -525,7 +538,12 @@ export function createMockElectronAPI(
       },
       async resetAppearance() {
         if (scenario === 'io-error') return failureForScenario<SettingsSnapshot>()!;
-        settings = { ...settings, noteColor: '#FFF8E7', noteOpacity: 1 };
+        settings = {
+          ...settings,
+          noteColor: '#FFF8E7',
+          noteOpacity: 1,
+          edgeRevealColor: DEFAULT_EDGE_REVEAL_COLOR,
+        };
         settingsListeners.forEach((listener) => listener(clone(settings)));
         return { ok: true as const, data: clone(settings) };
       },

@@ -8,6 +8,10 @@ function displayDate(date: string): string {
   return `${month ?? ''}月${day ?? ''}日 ${weekday}`;
 }
 
+/**
+ * 便利贴标题栏：显示当前日期、历史/今天状态，并提供前后翻日、返回今天、
+ * 打开菜单和收起/展开便利贴等操作。整栏是拖拽区域，按钮区域标记为 no-drag。
+ */
 export function TitleBar({
   selectedDate,
   isHistory,

@@ -20,6 +20,7 @@ const snapshot = {
   alwaysOnTop: true,
   showOnFullScreen: true,
   edgeAutoHideEnabled: false,
+  edgeRevealColor: '#92400E',
   completedExpanded: false,
   addedDateDisplay: 'hover' as const,
   dataDirectory: '/safe/data',
@@ -61,6 +62,7 @@ describe('settings IPC handlers', () => {
         noteOpacity: 0.8,
         showOnFullScreen: true,
         edgeAutoHideEnabled: true,
+        edgeRevealColor: '#0284c7',
       },
     );
     const invalid = await handlers.get(IPC.settingsUpdate)?.(
@@ -77,6 +79,7 @@ describe('settings IPC handlers', () => {
       noteOpacity: 0.8,
       showOnFullScreen: true,
       edgeAutoHideEnabled: true,
+      edgeRevealColor: '#0284C7',
     });
     expect(invalid).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
   });

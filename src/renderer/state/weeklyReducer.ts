@@ -2,6 +2,7 @@ import type { WeeklySnapshot } from '../../shared/domain';
 import type { ApiError, ExportReportResult } from '../../shared/results';
 import type { IsoWeekInput } from '../../preload/apiTypes';
 
+/** 周记页面的状态机：管理当前选中的 ISO 周、快照、加载/导出状态与错误。 */
 export interface WeeklyState {
   selection: IsoWeekInput;
   snapshot: WeeklySnapshot | null;

@@ -40,6 +40,7 @@ describe('ConfigService', () => {
     expect(config.always_on_top).toBe(true);
     expect(config.show_on_fullscreen).toBe(true);
     expect(config.edge_auto_hide).toBe(false);
+    expect(config.edge_reveal_color).toBe('#92400E');
     expect(config.note_color).toBe('#FFF8E7');
     expect(config.note_opacity).toBe(1);
     expect(persisted.schema_version).toBe(2);
@@ -120,6 +121,7 @@ describe('ConfigService', () => {
     const legacy = structuredClone(DEFAULT_CONFIG) as unknown as Record<string, unknown>;
     delete legacy.edge_auto_hide;
     delete legacy.show_on_fullscreen;
+    delete legacy.edge_reveal_color;
     await writeFile(configFile, JSON.stringify(legacy), 'utf8');
     const service = new ConfigService({ configFile, logger: makeLogger(), writeDelayMs: 1 });
 
@@ -130,6 +132,8 @@ describe('ConfigService', () => {
     expect(persisted.edge_auto_hide).toBe(false);
     expect(config.show_on_fullscreen).toBe(true);
     expect(persisted.show_on_fullscreen).toBe(true);
+    expect(config.edge_reveal_color).toBe('#92400E');
+    expect(persisted.edge_reveal_color).toBe('#92400E');
   });
 
   it('disables fullscreen visibility when always-on-top is disabled', async () => {

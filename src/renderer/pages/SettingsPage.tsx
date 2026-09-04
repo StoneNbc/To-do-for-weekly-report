@@ -8,7 +8,11 @@ import type {
   SettingsSnapshot,
 } from '../../shared/domain';
 import type { ApiResult } from '../../shared/results';
-import { DEFAULT_NOTE_COLOR, DEFAULT_NOTE_OPACITY } from '../../shared/constants';
+import {
+  DEFAULT_EDGE_REVEAL_COLOR,
+  DEFAULT_NOTE_COLOR,
+  DEFAULT_NOTE_OPACITY,
+} from '../../shared/constants';
 import { PROVIDER_PRESETS } from '../../shared/providerPresets';
 import { useElectronAPI } from '../hooks/useElectronAPI';
 
@@ -21,6 +25,15 @@ const PRESET_COLORS = [
   { name: '雾白', value: '#F5F5F4' },
 ] as const;
 
+const EDGE_REVEAL_PRESET_COLORS = [
+  { name: '琥珀', value: '#92400E' },
+  { name: '珊瑚', value: '#DC2626' },
+  { name: '湖蓝', value: '#0284C7' },
+  { name: '青绿', value: '#059669' },
+  { name: '紫罗兰', value: '#7C3AED' },
+  { name: '石墨', value: '#57534E' },
+] as const;
+
 /** 设置页只维护编辑态；持久化、密钥和文件访问都通过类型化 Preload API 进入 Main。 */
 export function SettingsPage() {
   const api = useElectronAPI();
@@ -28,7 +41,6 @@ export function SettingsPage() {
   const savedRef = useRef<SettingsSnapshot | null>(null);
   const [opacityDraft, setOpacityDraft] = useState(DEFAULT_NOTE_OPACITY);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -62,7 +74,6 @@ export function SettingsPage() {
       const previous = savedRef.current;
       if (!previous || savingRef.current) return false;
       savingRef.current = true;
-      setSaving(true);
       setError(null);
       setNotice(null);
       // 外观先乐观更新以保持滑块/色板响应；Main 失败时使用 previous 完整回滚。
@@ -77,6 +88,9 @@ export function SettingsPage() {
         ...(patch.edgeAutoHideEnabled !== undefined
           ? { edgeAutoHideEnabled: patch.edgeAutoHideEnabled }
           : {}),
+        ...(patch.edgeRevealColor !== undefined
+          ? { edgeRevealColor: patch.edgeRevealColor }
+          : {}),
         ...(patch.completedExpanded !== undefined
           ? { completedExpanded: patch.completedExpanded }
           : {}),
@@ -86,7 +100,6 @@ export function SettingsPage() {
       });
       const result = await api.settings.update(patch);
       savingRef.current = false;
-      setSaving(false);
       if (result.ok) {
         applySnapshot(result.data);
         setNotice('已保存');
@@ -170,8 +183,10 @@ export function SettingsPage() {
 
         {error || notice ? (
           <div
-            className={`rounded-xl px-4 py-3 text-sm ${
-              error ? 'bg-red-50 text-red-800' : 'bg-emerald-50 text-emerald-800'
+            className={`fixed right-6 top-5 z-50 max-w-sm rounded-xl px-4 py-3 text-sm shadow-lg ${
+              error
+                ? 'border border-red-200 bg-red-50 text-red-800'
+                : 'border border-emerald-200 bg-emerald-50 text-emerald-800'
             }`}
             role={error ? 'alert' : 'status'}
           >
@@ -180,7 +195,7 @@ export function SettingsPage() {
         ) : null}
 
         <SettingsCard title="外观" description="只影响悬浮便利贴，设置窗口和周记保持不变。">
-          <fieldset disabled={saving}>
+          <fieldset>
             <legend className="text-sm font-medium">便利贴颜色</legend>
             <div className="mt-3 flex flex-wrap gap-3">
               {PRESET_COLORS.map((color) => {
@@ -243,7 +258,6 @@ export function SettingsPage() {
             <input
               aria-label="便利贴不透明度"
               className="mt-3 w-full accent-amber-700"
-              disabled={saving}
               id="note-opacity"
               max="1"
               min="0.6"
@@ -261,22 +275,70 @@ export function SettingsPage() {
             </div>
           </div>
 
+          <fieldset className="mt-6">
+            <legend className="text-sm font-medium">隐藏提示条颜色</legend>
+            <p className="mt-1 text-xs text-stone-500">只影响贴边隐藏后露出的 2px 提示条。</p>
+            <div className="mt-3 flex flex-wrap gap-3">
+              {EDGE_REVEAL_PRESET_COLORS.map((color) => {
+                const selected = settings.edgeRevealColor === color.value;
+                return (
+                  <button
+                    aria-label={`选择${color.name}隐藏提示条`}
+                    aria-pressed={selected}
+                    className={`group flex w-16 flex-col items-center gap-1.5 rounded-xl p-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-amber-600 ${
+                      selected ? 'bg-amber-50 font-semibold text-amber-900' : 'hover:bg-stone-100'
+                    }`}
+                    key={color.value}
+                    onClick={() => void commit({ edgeRevealColor: color.value })}
+                    type="button"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`h-8 w-8 rounded-full border shadow-sm ${
+                        selected ? 'border-amber-700 ring-2 ring-amber-200' : 'border-stone-300'
+                      }`}
+                      style={{ backgroundColor: color.value }}
+                    />
+                    {color.name}
+                  </button>
+                );
+              })}
+              <label className="flex w-16 cursor-pointer flex-col items-center gap-1.5 rounded-xl p-2 text-xs outline-none hover:bg-stone-100 focus-within:ring-2 focus-within:ring-amber-600">
+                <span
+                  aria-hidden="true"
+                  className="grid h-8 w-8 place-items-center rounded-full border border-dashed border-stone-400 text-base text-white shadow-sm"
+                  style={{ backgroundColor: settings.edgeRevealColor }}
+                >
+                  +
+                </span>
+                自定义
+                <input
+                  aria-label="选择自定义隐藏提示条颜色"
+                  className="sr-only"
+                  onChange={(event) =>
+                    void commit({ edgeRevealColor: event.target.value.toUpperCase() })
+                  }
+                  type="color"
+                  value={settings.edgeRevealColor}
+                />
+              </label>
+            </div>
+          </fieldset>
+
           <button
             className="settings-secondary-button mt-5"
             disabled={
-              saving ||
-              (settings.noteColor === DEFAULT_NOTE_COLOR &&
-                settings.noteOpacity === DEFAULT_NOTE_OPACITY)
+              settings.noteColor === DEFAULT_NOTE_COLOR &&
+                settings.noteOpacity === DEFAULT_NOTE_OPACITY &&
+                settings.edgeRevealColor === DEFAULT_EDGE_REVEAL_COLOR
             }
             onClick={async () => {
               const previous = savedRef.current;
               if (!previous || savingRef.current) return;
               savingRef.current = true;
-              setSaving(true);
               setError(null);
               const result = await api.settings.resetAppearance();
               savingRef.current = false;
-              setSaving(false);
               if (result.ok) {
                 applySnapshot(result.data);
                 setNotice('已恢复默认外观');
@@ -295,28 +357,28 @@ export function SettingsPage() {
           <SettingSwitch
             checked={settings.alwaysOnTop}
             description="让便利贴保持在普通窗口上方。关闭后也会关闭全屏应用显示。"
-            disabled={saving}
+            disabled={false}
             label="保持置顶"
             onChange={(checked) => void commit({ alwaysOnTop: checked })}
           />
           <SettingSwitch
             checked={settings.showOnFullScreen}
             description="在其他 macOS 桌面和常规全屏应用中继续显示便利贴；需要先开启保持置顶。"
-            disabled={saving || !settings.alwaysOnTop}
+            disabled={!settings.alwaysOnTop}
             label="在全屏应用中显示"
             onChange={(checked) => void commit({ showOnFullScreen: checked })}
           />
           <SettingSwitch
             checked={settings.edgeAutoHideEnabled}
             description="拖到屏幕左侧、右侧或顶部后，鼠标离开时自动收起为边缘提示条。"
-            disabled={saving}
+            disabled={false}
             label="贴边自动隐藏"
             onChange={(checked) => void commit({ edgeAutoHideEnabled: checked })}
           />
           <SettingSwitch
             checked={settings.completedExpanded}
             description="记住便利贴中“已完成”区域最后一次展开或折叠状态。"
-            disabled={saving}
+            disabled={false}
             label="展开已完成区域"
             onChange={(checked) => void commit({ completedExpanded: checked })}
           />
@@ -332,7 +394,6 @@ export function SettingsPage() {
             <select
               aria-label="添加日期显示方式"
               className="rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-amber-600"
-              disabled={saving}
               id="added-date-display"
               onChange={(event) =>
                 void commit({ addedDateDisplay: event.target.value as 'hover' | 'always' })
@@ -382,7 +443,6 @@ export function SettingsPage() {
 
         <p className="pb-3 text-center text-xs text-stone-400">
           设置与 API Key 保存在本机；仅在你选择远程生成时发送当前周内容。
-          {saving ? ' 正在保存…' : ''}
         </p>
       </div>
     </main>

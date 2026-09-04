@@ -29,19 +29,33 @@ export class FileChangedError extends Error {
 export const computeRevision = (text: string): string =>
   createHash('sha256').update(text, 'utf8').digest('hex');
 
+/**
+ * 所有业务 TXT 文件的底层读写入口。
+ *
+ * 职责：
+ * - 用「同目录临时文件 + fsync + rename」实现原子写入，避免进程中断留下半写入文件；
+ * - 以文件全文 SHA-256 作为 revision，为上层提供乐观并发冲突检测；
+ * - 对同一路径的操作串行排队，保证「读-改-写」的原子性。
+ */
 export class TextFileStore {
   // 同一路径的操作串行执行；不同文件仍可并行，避免全局锁降低响应速度。
   private readonly queues = new Map<string, Promise<void>>();
 
+  /** 读取文件并生成快照（含 revision 与换行信息）。 */
   async read(path: string): Promise<TextFileSnapshot> {
     return this.readUnlocked(resolve(path));
   }
 
+  /** 无条件覆盖写入，不校验 revision；适合创建缺失文件等场景。 */
   async writeAtomic(path: string, text: string): Promise<TextFileSnapshot> {
     const absolutePath = resolve(path);
     return this.enqueue(absolutePath, () => this.writeUnlocked(absolutePath, text));
   }
 
+  /**
+   * 读-改-写事务：校验 expectedRevision 后应用 transform，再原子写回。
+   * revision 不匹配时抛出 FileChangedError，防止旧界面覆盖外部修改。
+   */
   async update<T>(
     path: string,
     expectedRevision: string | null,
@@ -62,6 +76,10 @@ export class TextFileStore {
     });
   }
 
+  /**
+   * 与 update 相同，但文件不存在时用 initialText 作为初始快照再执行 transform，
+   * 用于首次写入历史周文件等场景。
+   */
   async updateOrCreate<T>(
     path: string,
     initialText: string,
@@ -85,6 +103,7 @@ export class TextFileStore {
     });
   }
 
+  /** 等待所有排队中的写入完成，应用退出前用于冲刷未落盘的数据。 */
   async drain(): Promise<void> {
     await Promise.all([...this.queues.values()]);
   }

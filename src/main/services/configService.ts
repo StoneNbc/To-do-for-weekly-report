@@ -39,6 +39,7 @@ const knownConfigSchema = z.object({
   always_on_top: z.boolean(),
   show_on_fullscreen: z.boolean(),
   edge_auto_hide: z.boolean(),
+  edge_reveal_color: z.string().transform(normalizeNoteColor).refine(isValidNoteColor),
   window_bounds: windowBoundsSchema.nullable(),
   completed_expanded: z.boolean(),
   added_date_display: z.enum(['hover', 'always']),
@@ -58,6 +59,7 @@ export type ConfigPatch = Partial<
     | 'always_on_top'
     | 'show_on_fullscreen'
     | 'edge_auto_hide'
+    | 'edge_reveal_color'
     | 'window_bounds'
     | 'completed_expanded'
     | 'added_date_display'
@@ -120,6 +122,11 @@ export const parseConfig = (input: unknown, onInvalid?: (field: string) => void)
   return candidate as AppConfig;
 };
 
+/**
+ * 应用配置（config.json）的读写与校验服务。
+ * 读取时对无效字段回退默认值并保留未知扩展字段；写入采用防抖 + 原子替换，
+ * 并提供可靠的 commit 提交（写盘成功后才发布字段，失败时内存保持不变）。
+ */
 export class ConfigService {
   readonly #configFile: string;
   readonly #logger: AppLogger;
@@ -288,6 +295,10 @@ const parsePatch = (patch: ConfigPatch): ConfigPatch => {
     parsedPatch.show_on_fullscreen = z.boolean().parse(patch.show_on_fullscreen);
   if ('edge_auto_hide' in patch)
     parsedPatch.edge_auto_hide = z.boolean().parse(patch.edge_auto_hide);
+  if ('edge_reveal_color' in patch)
+    parsedPatch.edge_reveal_color = knownConfigSchema.shape.edge_reveal_color.parse(
+      patch.edge_reveal_color,
+    );
   if ('completed_expanded' in patch)
     parsedPatch.completed_expanded = z.boolean().parse(patch.completed_expanded);
   if ('added_date_display' in patch)

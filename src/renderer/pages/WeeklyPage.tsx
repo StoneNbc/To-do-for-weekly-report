@@ -20,6 +20,10 @@ function adjacentWeek(selection: IsoWeekInput, offset: -1 | 1): IsoWeekInput {
   return { isoYear: info.isoYear, isoWeek: info.isoWeek };
 }
 
+/**
+ * 周记页面：按 ISO 周展示每日完成记录，并支持生成、编辑、保存或放弃周报草稿。
+ * 远程模式首次生成前会要求确认数据发送范围；本地模板模式则完全离线渲染。
+ */
 export function WeeklyPage() {
   const api = useElectronAPI();
   const currentWeek = getIsoWeekInfo(getLocalDate());

@@ -69,6 +69,11 @@ export class ReportGenerationError extends Error {
   }
 }
 
+/**
+ * 周报导出服务：负责生成草稿（本地模板或远程 LLM）、通过系统保存对话框写出 TXT，
+ * 并维护本次进程内的草稿缓存与最近导出路径。
+ * 草稿有数量与时间上限；导出写入使用原子替换，取消保存不产生任何文件。
+ */
 export class ReportService {
   readonly #options: ReportServiceOptions;
   #lastExportedPath: string | null = null;

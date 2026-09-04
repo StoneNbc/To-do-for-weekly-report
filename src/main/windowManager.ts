@@ -76,6 +76,11 @@ const sameBounds = (left: Rectangle, right: Rectangle): boolean =>
 
 const NOTE_POINTER_POLL_MS = 50;
 
+/**
+ * 管理便利贴、周记、设置三个 BrowserWindow 的创建、显示与交互。
+ * 便利贴窗口承担无边框置顶、紧凑收起、贴边自动隐藏/唤出、尺寸记忆等桌面行为；
+ * 所有窗口���行在隔离沙箱中，仅通过 Preload 暴露的白名单能力与 Main 通信。
+ */
 export class WindowManager {
   readonly #options: WindowManagerOptions;
   #noteWindow: BrowserWindow | null = null;
@@ -135,6 +140,7 @@ export class WindowManager {
 
     const noteWindow = new BrowserWindow({
       ...bounds,
+      ...(process.platform === 'darwin' ? { type: 'panel' as const } : {}),
       minWidth: MIN_NOTE_WIDTH,
       minHeight: MIN_NOTE_HEIGHT,
       title: '悬浮便利贴',
@@ -627,12 +633,18 @@ export class WindowManager {
     );
     this.#dockState.phase = 'hidden';
     this.#broadcastDockState();
-    if (edge === 'top') {
-      window.setMinimumSize(MIN_NOTE_WIDTH, EDGE_REVEAL_SIZE);
-      window.setResizable(false);
-    }
+    window.setMinimumSize(EDGE_REVEAL_SIZE, EDGE_REVEAL_SIZE);
+    window.setResizable(false);
     this.#setProgrammaticBounds(window, hiddenBounds);
-    window.blur();
+    if (
+      process.platform === 'darwin' &&
+      this.#options.config.get().always_on_top &&
+      this.#options.config.get().show_on_fullscreen
+    ) {
+      window.showInactive();
+    } else {
+      window.blur();
+    }
     this.#options.logger.debug('Floating note auto-hidden', {
       edge,
       displayId: display.id,

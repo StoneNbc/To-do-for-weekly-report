@@ -49,6 +49,10 @@ export class ArchivePartialFailureError extends Error {
   }
 }
 
+/**
+ * 跨日归档服务：把 today.txt 中已完成事项写入对应周文件，并把日期头推进到“今天”。
+ * 先写周文件、再清理 today，保证失败时数据仍可恢复；多个触发源通过队列串行执行。
+ */
 export class ArchiveService {
   // 启动、零点、唤醒和用户操作可能同时触发补偿，必须串行读取并更新两个文件。
   private reconcileQueue: Promise<void> = Promise.resolve();

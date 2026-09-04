@@ -103,6 +103,11 @@ const resolveMonthDay = (
   return null;
 };
 
+/**
+ * 把周文件文本解析成轻量 AST（节点数组）。
+ * 与 todayParser 类似，节点保留 raw 以便未知行逐字保真；
+ * 周文件中的 MM-DD 日期需要结合目标 ISO 周上下文才能还原完整日期。
+ */
 export const parseWeek = (text: string, options: ParseWeekOptions): WeekDocument => {
   // Validates the week, including rejecting W53 in years that only have 52 weeks.
   getDateFromIsoWeek(options.isoYear, options.isoWeek, 1);

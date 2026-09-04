@@ -67,6 +67,11 @@ const warning = (
   reason: string,
 ): ParseWarning => ({ file, line, code, reason });
 
+/**
+ * 把 today.txt 的文本解析成轻量 AST（节点数组）。
+ * 每个节点保留原始 raw 文本，Repository 只重���被编辑的节点，
+ * 未知行与用户注释因此能原样保留。
+ */
 export const parseToday = (text: string, options: ParseTodayOptions = {}): TodayDocument => {
   const file = options.file ?? 'today.txt';
   const decoded = decodeText(text);

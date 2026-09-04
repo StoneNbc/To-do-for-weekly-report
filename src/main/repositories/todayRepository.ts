@@ -55,6 +55,11 @@ export interface TodayTaskChanges {
   completedAt?: string | null;
 }
 
+/**
+ * today.txt 的读写仓库。
+ * 负责把任务增删改、跨日 rollover 等操作翻译成对文本节点的编辑，
+ * 并通过 TextFileStore 的 revision 校验保证并发安全。
+ */
 export class TodayRepository {
   constructor(
     readonly path: string,

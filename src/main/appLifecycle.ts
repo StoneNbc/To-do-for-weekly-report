@@ -9,6 +9,11 @@ export interface AppLifecycleOptions {
   stopBackgroundServices?: () => Promise<void>;
 }
 
+/**
+ * 应用生命周期管理：单实例锁、窗口关闭/激活行为，以及退出前的优雅收尾。
+ * 退出时先拦截一次，等��后台服务停止、原子写队列排空、日志冲刷后再真正退出，
+ * 避免任务数据或窗口状态丢失。
+ */
 export class AppLifecycle {
   readonly #options: AppLifecycleOptions;
   #isQuitting = false;

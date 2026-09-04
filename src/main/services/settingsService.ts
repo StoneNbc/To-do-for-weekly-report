@@ -1,4 +1,8 @@
-import { DEFAULT_NOTE_COLOR, DEFAULT_NOTE_OPACITY } from '../../shared/constants';
+import {
+  DEFAULT_EDGE_REVEAL_COLOR,
+  DEFAULT_NOTE_COLOR,
+  DEFAULT_NOTE_OPACITY,
+} from '../../shared/constants';
 import type {
   AppearancePreview,
   AppConfig,
@@ -74,6 +78,7 @@ export class SettingsService {
   resetAppearance(): Promise<SettingsSnapshot> {
     return this.update({
       noteColor: DEFAULT_NOTE_COLOR,
+      edgeRevealColor: DEFAULT_EDGE_REVEAL_COLOR,
       noteOpacity: DEFAULT_NOTE_OPACITY,
     });
   }
@@ -85,6 +90,7 @@ export class SettingsService {
       alwaysOnTop: config.always_on_top,
       showOnFullScreen: config.show_on_fullscreen,
       edgeAutoHideEnabled: config.edge_auto_hide,
+      edgeRevealColor: config.edge_reveal_color,
       completedExpanded: config.completed_expanded,
       addedDateDisplay: config.added_date_display,
       dataDirectory: this.#dataDirectory,
@@ -100,6 +106,7 @@ const toConfigPatch = (patch: SettingsPatch): ConfigPatch => {
   if (patch.showOnFullScreen !== undefined) configPatch.show_on_fullscreen = patch.showOnFullScreen;
   if (patch.edgeAutoHideEnabled !== undefined)
     configPatch.edge_auto_hide = patch.edgeAutoHideEnabled;
+  if (patch.edgeRevealColor !== undefined) configPatch.edge_reveal_color = patch.edgeRevealColor;
   if (patch.completedExpanded !== undefined)
     configPatch.completed_expanded = patch.completedExpanded;
   if (patch.addedDateDisplay !== undefined) configPatch.added_date_display = patch.addedDateDisplay;

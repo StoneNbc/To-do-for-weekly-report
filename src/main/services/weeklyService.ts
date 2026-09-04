@@ -83,6 +83,12 @@ export class HistoryTransferPartialFailureError extends Error {
   }
 }
 
+/**
+ * 周记与历史补录的业务服务。
+ * 负责历史日期视图（待办 + 已完成）、历史任务的增删改、待办在历史日期上的
+ * 完成/重开，���及当前周视图对 today 已完成项的实时合并。
+ * 跨 today/week 的“完成”与“重开”操作通过内部队列串行执行，避免并发竞态。
+ */
 export class WeeklyService {
   private transferQueue: Promise<void> = Promise.resolve();
 

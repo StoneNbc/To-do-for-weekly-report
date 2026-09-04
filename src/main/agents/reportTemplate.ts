@@ -1,3 +1,8 @@
+/**
+ * 周报模板的渲染、校验与任务列表格式化。
+ * 模板使用 {{variable}} 占位符，支持 iso_year / iso_week / week_start / week_end / tasks；
+ * 渲染只做单次替换，任务正文中的 {{...}} 不会被二次解析。
+ */
 import type { ReportContext, WeeklyTask } from './types';
 import {
   compareLocalDates,
@@ -13,6 +18,7 @@ const TEMPLATE_VARIABLE = /\{\{([a-z_]+)\}\}/g;
 export const MAX_REPORT_TEMPLATE_LENGTH = 20_000;
 export const MAX_REPORT_PROMPT_LENGTH = 20_000;
 
+/** 用任务列表和周上下文填充模板占位符，返回可直接展示或导出的纯文本周报。 */
 export const renderTemplateReport = (
   tasks: readonly WeeklyTask[],
   context: ReportContext,
@@ -33,6 +39,7 @@ export const renderTemplateReport = (
   return template.replace(TEMPLATE_VARIABLE, (_match, name: string) => values[name] ?? '');
 };
 
+/** 校验模板：非空、长度限制、必须包含 {{tasks}}、不含未知变量或残缺花括号。 */
 export const validateReportTemplate = (template: string): void => {
   if (!template.trim()) throw new RangeError('周报模板不能为空');
   if (template.length > MAX_REPORT_TEMPLATE_LENGTH) {
@@ -53,6 +60,7 @@ export const validateReportTemplate = (template: string): void => {
   }
 };
 
+/** 校验远程写作提示词：非空且不超过最大长度。 */
 export const validateReportPrompt = (prompt: string): void => {
   if (!prompt.trim()) throw new RangeError('远程周报提示词不能为空');
   if (prompt.length > MAX_REPORT_PROMPT_LENGTH) {
@@ -60,6 +68,7 @@ export const validateReportPrompt = (prompt: string): void => {
   }
 };
 
+/** 把任务按日期分组并格式化为带星期标签的文本列表，供模板 {{tasks}} 使用。 */
 export const renderTaskList = (tasks: readonly WeeklyTask[], context: ReportContext): string => {
   const groups = groupTasks(tasks, context);
   const lines: string[] = [];

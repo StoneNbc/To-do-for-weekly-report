@@ -101,6 +101,11 @@ export const toApiError = (error: unknown, logger: AppLogger): ApiResult<never> 
 
 const parse = <T>(schema: ZodType<T>, input: unknown): T => schema.parse(input);
 
+/**
+ * 注册今日任务与历史/周记相关的全部业务 IPC handler。
+ * 所有通道统一：先用 Zod 校验输入，再调用 Service，最后把结果包装成 ApiResult；
+ * 返回的清理函数用于测试或应用重建时释放全部 handler。
+ */
 export const registerBusinessHandlers = ({
   ipcMain,
   services,

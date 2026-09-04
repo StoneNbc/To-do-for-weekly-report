@@ -1,10 +1,15 @@
 import type { LlmConnectionSettings, LlmProviderId } from './domain';
 
+/**
+ * 远程 LLM 服务商的预设信息，供设置页快速选择。
+ * 仅提供“开箱即用”的默认地址与模型，用户仍可手动覆盖。
+ */
 export interface ProviderPreset {
   id: LlmProviderId;
   label: string;
   baseUrl: string;
   model: string;
+  /** 为 true 表示该服务允许不填 API Key（如本地服务）。 */
   apiKeyOptional?: boolean;
 }
 
