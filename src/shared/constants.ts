@@ -5,6 +5,10 @@ export const DEFAULT_NOTE_HEIGHT = 400;
 export const MIN_NOTE_WIDTH = 280;
 export const MIN_NOTE_HEIGHT = 280;
 export const COLLAPSED_NOTE_HEIGHT = 64;
+export const EDGE_SNAP_THRESHOLD = 12;
+export const EDGE_REVEAL_SIZE = 4;
+export const EDGE_HIDE_DELAY_MS = 500;
+export const WINDOW_MOVE_SETTLE_MS = 150;
 export const DEFAULT_NOTE_COLOR = '#FFF8E7';
 export const DEFAULT_NOTE_OPACITY = 1;
 export const MIN_NOTE_OPACITY = 0.6;
@@ -75,6 +79,7 @@ export const DEFAULT_CONFIG = {
   llm: DEFAULT_LLM_SETTINGS,
   remote_consent_confirmed: false,
   always_on_top: true,
+  edge_auto_hide: false,
   window_bounds: null,
   completed_expanded: false,
   added_date_display: DEFAULT_ADDED_DATE_DISPLAY,

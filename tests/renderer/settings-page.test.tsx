@@ -58,6 +58,9 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /保持置顶/ }));
     await waitFor(() => expect(update).toHaveBeenCalledWith({ alwaysOnTop: false }));
 
+    fireEvent.click(screen.getByRole('checkbox', { name: /贴边自动隐藏/ }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ edgeAutoHideEnabled: true }));
+
     fireEvent.change(screen.getByRole('combobox', { name: '添加日期显示方式' }), {
       target: { value: 'always' },
     });

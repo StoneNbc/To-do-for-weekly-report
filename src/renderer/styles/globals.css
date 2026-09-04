@@ -51,6 +51,31 @@ textarea,
   color: var(--note-fg);
 }
 
+.note-edge-reveal {
+  position: fixed;
+  z-index: 50;
+  background: var(--note-accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--note-fg) 25%, transparent);
+}
+
+.note-edge-reveal-left {
+  bottom: 0;
+  right: 0;
+  top: 0;
+  width: var(--note-edge-reveal-size);
+}
+
+.note-edge-reveal-right {
+  bottom: 0;
+  left: 0;
+  top: 0;
+  width: var(--note-edge-reveal-size);
+}
+
+.note-edge-reveal-top {
+  inset: 0;
+}
+
 .note-root .text-stone-800,
 .note-root .text-stone-700,
 .note-root .text-stone-600 {

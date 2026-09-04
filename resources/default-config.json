@@ -16,6 +16,7 @@
   },
   "remote_consent_confirmed": false,
   "always_on_top": true,
+  "edge_auto_hide": false,
   "window_bounds": null,
   "completed_expanded": false,
   "added_date_display": "hover",

@@ -4,14 +4,30 @@ import {
   COLLAPSED_NOTE_HEIGHT,
   DEFAULT_NOTE_HEIGHT,
   DEFAULT_NOTE_WIDTH,
+  EDGE_HIDE_DELAY_MS,
+  EDGE_REVEAL_SIZE,
   MIN_NOTE_HEIGHT,
   MIN_NOTE_WIDTH,
+  WINDOW_MOVE_SETTLE_MS,
 } from '../shared/constants';
 import type { AppLogger } from './logging/logger';
 import type { MenuFactory } from './menuFactory';
 import { restoreVisibleBounds } from './platform/displayBounds';
+import {
+  detectNoteDockCandidate,
+  getHiddenNoteBounds,
+  snapNoteToEdge,
+  type NoteDisplayArea,
+} from './platform/noteAutoHide';
 import type { ConfigService } from './services/configService';
-import type { DataChangedEvent, NoteAppearance, SettingsSnapshot } from '../shared/domain';
+import type {
+  DataChangedEvent,
+  NoteAppearance,
+  NoteDockEdge,
+  NoteDockSnapshot,
+  NoteInteractionState,
+  SettingsSnapshot,
+} from '../shared/domain';
 import { IPC } from './ipc/channels';
 import { SettingsCloseGuard } from './services/settingsCloseGuard';
 
@@ -25,13 +41,40 @@ export interface WindowManagerOptions {
   isQuitting: () => boolean;
 }
 
-const toDisplayAreas = (): Array<{ workArea: Rectangle; primary?: boolean }> => {
+const toDisplayAreas = (): NoteDisplayArea[] => {
   const primaryId = screen.getPrimaryDisplay().id;
   return screen.getAllDisplays().map((display) => ({
+    id: display.id,
     workArea: display.workArea,
     primary: display.id === primaryId,
   }));
 };
+
+interface NoteDockRuntimeState extends NoteDockSnapshot {
+  displayId: number | null;
+  visibleBounds: Rectangle | null;
+  pointerInside: boolean;
+  interactionBlocked: boolean;
+}
+
+const createUndockedState = (
+  interaction?: Pick<NoteDockRuntimeState, 'pointerInside' | 'interactionBlocked'>,
+): NoteDockRuntimeState => ({
+  edge: null,
+  phase: 'undocked',
+  displayId: null,
+  visibleBounds: null,
+  pointerInside: interaction?.pointerInside ?? false,
+  interactionBlocked: interaction?.interactionBlocked ?? false,
+});
+
+const sameBounds = (left: Rectangle, right: Rectangle): boolean =>
+  left.x === right.x &&
+  left.y === right.y &&
+  left.width === right.width &&
+  left.height === right.height;
+
+const NOTE_POINTER_POLL_MS = 50;
 
 export class WindowManager {
   readonly #options: WindowManagerOptions;
@@ -42,9 +85,17 @@ export class WindowManager {
   #settingsCloseHandler: (() => void) | null = null;
   readonly #settingsCloseGuard = new SettingsCloseGuard();
   #boundsTimer: NodeJS.Timeout | null = null;
+  #moveSettleTimer: NodeJS.Timeout | null = null;
+  #autoHideTimer: NodeJS.Timeout | null = null;
+  #programmaticBoundsTimer: NodeJS.Timeout | null = null;
+  #pointerPollTimer: NodeJS.Timeout | null = null;
+  #programmaticBoundsChange = false;
   #pendingReportGeneration = false;
   #noteCollapsed = false;
   #expandedNoteBounds: Rectangle | null = null;
+  #dockState = createUndockedState();
+  #displayListenersRegistered = false;
+  readonly #displayChangeHandler = (): void => this.#handleDisplayChange();
 
   constructor(options: WindowManagerOptions) {
     this.#options = options;
@@ -103,7 +154,9 @@ export class WindowManager {
       },
     });
     this.#noteWindow = noteWindow;
+    this.#dockState = createUndockedState();
     this.#applyAlwaysOnTop(config.always_on_top);
+    this.#registerDisplayListeners();
 
     noteWindow.on('ready-to-show', () => {
       if (!noteWindow.isDestroyed()) noteWindow.show();
@@ -117,16 +170,33 @@ export class WindowManager {
     });
     noteWindow.on('closed', () => {
       if (this.#noteWindow === noteWindow) this.#noteWindow = null;
+      this.#clearDockTimers();
       this.#noteCollapsed = false;
       this.#expandedNoteBounds = null;
+      this.#dockState = createUndockedState();
     });
-    noteWindow.on('move', () => this.#scheduleBoundsSave(noteWindow));
-    noteWindow.on('resize', () => this.#scheduleBoundsSave(noteWindow));
-    noteWindow.webContents.on('context-menu', () =>
-      this.#menuFactory?.createNoteContextMenu().popup({ window: noteWindow }),
-    );
+    noteWindow.on('will-move', () => {
+      this.#handleManualNoteMove();
+    });
+    noteWindow.on('move', () => {
+      this.#handleNoteMove(noteWindow);
+      this.#scheduleBoundsSave(noteWindow);
+      this.#scheduleDockDetection(noteWindow);
+    });
+    if (process.platform === 'win32') {
+      noteWindow.on('moved', () => this.#detectAndDock(noteWindow));
+    }
+    noteWindow.on('resize', () => {
+      this.#scheduleBoundsSave(noteWindow);
+      this.#scheduleDockDetection(noteWindow);
+    });
+    noteWindow.webContents.on('context-menu', () => {
+      this.#revealDockedNote('context-menu');
+      this.#menuFactory?.createNoteContextMenu().popup({ window: noteWindow });
+    });
 
     await this.#loadView(noteWindow, 'note');
+    if (config.edge_auto_hide) this.#detectAndDock(noteWindow);
     return noteWindow;
   }
 
@@ -220,9 +290,22 @@ export class WindowManager {
   showFloatingNote(): void {
     const window = this.#noteWindow;
     if (!window || window.isDestroyed()) return;
+    this.#revealDockedNote('show');
     if (window.isMinimized()) window.restore();
     window.show();
     window.focus();
+  }
+
+  getNoteDockState(): NoteDockSnapshot {
+    return { edge: this.#dockState.edge, phase: this.#dockState.phase };
+  }
+
+  setNoteInteractionState(input: NoteInteractionState): void {
+    this.#dockState.interactionBlocked = input.autoHideBlocked;
+    const pointerInside = this.#readPointerInsideNote(input.pointerInside);
+    this.#applyPointerInside(pointerInside);
+    if (input.autoHideBlocked) this.#cancelAutoHide();
+    else if (!pointerInside) this.#scheduleAutoHide();
   }
 
   setFloatingNoteCollapsed(collapsed: boolean): boolean {
@@ -236,15 +319,19 @@ export class WindowManager {
       this.#boundsTimer = null;
     }
 
+    this.#revealDockedNote('collapse');
+
     const current = window.getBounds();
+    const dockEdge = this.#dockState.edge;
+    const dockDisplayId = this.#dockState.displayId;
     if (collapsed) {
       this.#expandedNoteBounds = current;
       this.#noteCollapsed = true;
       // 紧凑尺寸只属于当前会话；先保存完整尺寸，避免下次启动仍只有标题栏高度。
       this.#options.config.setWindowBounds(current);
-      window.setMinimumSize(MIN_NOTE_WIDTH, COLLAPSED_NOTE_HEIGHT);
-      window.setResizable(false);
-      window.setBounds({ ...current, height: COLLAPSED_NOTE_HEIGHT }, true);
+      this.#applyVisibleSizePolicy(window);
+      this.#setProgrammaticBounds(window, { ...current, height: COLLAPSED_NOTE_HEIGHT }, true);
+      this.#reanchorDockAfterResize(window, dockEdge, dockDisplayId);
       return true;
     }
 
@@ -254,8 +341,9 @@ export class WindowManager {
     };
     this.#noteCollapsed = false;
     this.#expandedNoteBounds = null;
-    window.setResizable(true);
-    window.setBounds(
+    this.#applyVisibleSizePolicy(window);
+    this.#setProgrammaticBounds(
+      window,
       {
         x: current.x,
         y: current.y,
@@ -264,7 +352,7 @@ export class WindowManager {
       },
       true,
     );
-    window.setMinimumSize(MIN_NOTE_WIDTH, MIN_NOTE_HEIGHT);
+    this.#reanchorDockAfterResize(window, dockEdge, dockDisplayId);
     return false;
   }
 
@@ -275,7 +363,10 @@ export class WindowManager {
 
   isFloatingNoteVisible(): boolean {
     return Boolean(
-      this.#noteWindow && !this.#noteWindow.isDestroyed() && this.#noteWindow.isVisible(),
+      this.#noteWindow &&
+      !this.#noteWindow.isDestroyed() &&
+      this.#noteWindow.isVisible() &&
+      this.#dockState.phase !== 'hidden',
     );
   }
 
@@ -310,6 +401,12 @@ export class WindowManager {
     const noteWindow = this.#noteWindow;
     if (noteWindow && !noteWindow.isDestroyed()) noteWindow.setOpacity(snapshot.noteOpacity);
     this.#applyAlwaysOnTop(snapshot.alwaysOnTop);
+    if (!snapshot.edgeAutoHideEnabled) {
+      this.#revealDockedNote('setting');
+      this.#clearDockState();
+    } else if (noteWindow && !noteWindow.isDestroyed()) {
+      this.#detectAndDock(noteWindow);
+    }
   }
 
   broadcastSettingsChanged(snapshot: SettingsSnapshot): void {
@@ -330,7 +427,7 @@ export class WindowManager {
       clearTimeout(this.#boundsTimer);
       this.#boundsTimer = null;
     }
-    const current = window.getBounds();
+    const current = this.#dockState.visibleBounds ?? window.getBounds();
     if (this.#noteCollapsed && this.#expandedNoteBounds) {
       this.#options.config.setWindowBounds({
         ...this.#expandedNoteBounds,
@@ -344,6 +441,8 @@ export class WindowManager {
 
   closeAll(): void {
     this.saveCurrentBounds();
+    this.#clearDockTimers();
+    this.#unregisterDisplayListeners();
     this.#weeklyWindow?.close();
     this.#settingsWindow?.close();
     this.#noteWindow?.close();
@@ -392,14 +491,355 @@ export class WindowManager {
     window.webContents.send(IPC.reportGenerationRequested);
   }
 
+  #scheduleDockDetection(window: BrowserWindow): void {
+    if (
+      this.#programmaticBoundsChange ||
+      this.#dockState.phase === 'hidden' ||
+      !this.#options.config.get().edge_auto_hide
+    ) {
+      return;
+    }
+    if (this.#moveSettleTimer) clearTimeout(this.#moveSettleTimer);
+    this.#moveSettleTimer = setTimeout(() => {
+      this.#moveSettleTimer = null;
+      this.#detectAndDock(window);
+    }, WINDOW_MOVE_SETTLE_MS);
+  }
+
+  #handleManualNoteMove(): void {
+    if (this.#dockState.phase === 'undocked') return;
+    if (this.#programmaticBoundsTimer) clearTimeout(this.#programmaticBoundsTimer);
+    this.#programmaticBoundsTimer = null;
+    this.#programmaticBoundsChange = false;
+    this.#clearDockState();
+  }
+
+  #handleNoteMove(window: BrowserWindow): void {
+    const visibleBounds = this.#dockState.visibleBounds;
+    if (
+      !this.#programmaticBoundsChange &&
+      this.#dockState.phase === 'docked-visible' &&
+      visibleBounds &&
+      !sameBounds(window.getBounds(), visibleBounds)
+    ) {
+      this.#clearDockState();
+    }
+  }
+
+  #detectAndDock(window: BrowserWindow): void {
+    if (
+      window.isDestroyed() ||
+      window.isMinimized() ||
+      window.isMaximized() ||
+      this.#programmaticBoundsChange ||
+      this.#dockState.phase === 'hidden' ||
+      !this.#options.config.get().edge_auto_hide
+    ) {
+      return;
+    }
+
+    const bounds = window.getBounds();
+    const electronDisplay = screen.getDisplayMatching(bounds);
+    const displays = toDisplayAreas();
+    const display = displays.find((candidate) => candidate.id === electronDisplay.id);
+    if (!display) {
+      this.#clearDockState();
+      return;
+    }
+    const candidate = detectNoteDockCandidate(bounds, display, displays);
+    if (!candidate) {
+      this.#clearDockState();
+      return;
+    }
+
+    this.#cancelAutoHide();
+    this.#dockState = {
+      ...this.#dockState,
+      edge: candidate.edge,
+      phase: 'docked-visible',
+      displayId: candidate.displayId,
+      visibleBounds: candidate.visibleBounds,
+    };
+    this.#setProgrammaticBounds(window, candidate.visibleBounds);
+    this.#saveVisibleBounds(candidate.visibleBounds);
+    this.#broadcastDockState();
+    this.#startPointerTracking();
+    if (!this.#dockState.pointerInside && !this.#dockState.interactionBlocked) {
+      this.#scheduleAutoHide();
+    }
+  }
+
+  #scheduleAutoHide(): void {
+    if (
+      this.#dockState.phase !== 'docked-visible' ||
+      this.#dockState.pointerInside ||
+      this.#dockState.interactionBlocked ||
+      !this.#options.config.get().edge_auto_hide
+    ) {
+      return;
+    }
+    this.#cancelAutoHide();
+    this.#autoHideTimer = setTimeout(() => {
+      this.#autoHideTimer = null;
+      if (
+        this.#dockState.phase === 'docked-visible' &&
+        !this.#dockState.pointerInside &&
+        !this.#dockState.interactionBlocked &&
+        this.#options.config.get().edge_auto_hide
+      ) {
+        this.#hideDockedNote();
+      }
+    }, EDGE_HIDE_DELAY_MS);
+  }
+
+  #hideDockedNote(): void {
+    const window = this.#noteWindow;
+    const edge = this.#dockState.edge;
+    const visibleBounds = this.#dockState.visibleBounds;
+    const display = toDisplayAreas().find(
+      (candidate) => candidate.id === this.#dockState.displayId,
+    );
+    if (!window || window.isDestroyed() || !edge || !visibleBounds || !display) {
+      this.#clearDockState();
+      return;
+    }
+    if (this.#readPointerInsideNote(false)) {
+      this.#applyPointerInside(true);
+      return;
+    }
+
+    const hiddenBounds = getHiddenNoteBounds(
+      visibleBounds,
+      display.workArea,
+      edge,
+      EDGE_REVEAL_SIZE,
+    );
+    this.#dockState.phase = 'hidden';
+    this.#broadcastDockState();
+    if (edge === 'top') {
+      window.setMinimumSize(MIN_NOTE_WIDTH, EDGE_REVEAL_SIZE);
+      window.setResizable(false);
+    }
+    this.#setProgrammaticBounds(window, hiddenBounds);
+    window.blur();
+    this.#options.logger.debug('Floating note auto-hidden', {
+      edge,
+      displayId: display.id,
+    });
+  }
+
+  #revealDockedNote(
+    reason: 'pointer' | 'show' | 'collapse' | 'setting' | 'display' | 'context-menu',
+  ): void {
+    this.#cancelAutoHide();
+    const window = this.#noteWindow;
+    const visibleBounds = this.#dockState.visibleBounds;
+    if (!window || window.isDestroyed() || this.#dockState.phase !== 'hidden' || !visibleBounds) {
+      return;
+    }
+
+    this.#applyVisibleSizePolicy(window);
+    this.#setProgrammaticBounds(window, visibleBounds);
+    this.#dockState.phase = 'docked-visible';
+    this.#broadcastDockState();
+    this.#options.logger.debug('Floating note auto-hide restored', {
+      edge: this.#dockState.edge,
+      reason,
+    });
+  }
+
+  #reanchorDockAfterResize(
+    window: BrowserWindow,
+    edge: NoteDockEdge | null,
+    displayId: number | null,
+  ): void {
+    if (!edge || displayId === null) return;
+    const display = toDisplayAreas().find((candidate) => candidate.id === displayId);
+    if (!display) {
+      this.#clearDockState();
+      return;
+    }
+    const visibleBounds = snapNoteToEdge(window.getBounds(), display.workArea, edge);
+    this.#dockState = {
+      ...this.#dockState,
+      edge,
+      phase: 'docked-visible',
+      displayId,
+      visibleBounds,
+    };
+    this.#setProgrammaticBounds(window, visibleBounds);
+    this.#saveVisibleBounds(visibleBounds);
+    this.#broadcastDockState();
+  }
+
+  #applyVisibleSizePolicy(window: BrowserWindow): void {
+    window.setMinimumSize(
+      MIN_NOTE_WIDTH,
+      this.#noteCollapsed ? COLLAPSED_NOTE_HEIGHT : MIN_NOTE_HEIGHT,
+    );
+    window.setResizable(!this.#noteCollapsed);
+  }
+
+  #setProgrammaticBounds(window: BrowserWindow, bounds: Rectangle, animate = false): void {
+    if (sameBounds(window.getBounds(), bounds)) return;
+    if (this.#programmaticBoundsTimer) clearTimeout(this.#programmaticBoundsTimer);
+    this.#programmaticBoundsChange = true;
+    window.setBounds(bounds, animate);
+    this.#programmaticBoundsTimer = setTimeout(() => {
+      this.#programmaticBoundsTimer = null;
+      this.#programmaticBoundsChange = false;
+    }, WINDOW_MOVE_SETTLE_MS);
+  }
+
+  #saveVisibleBounds(bounds: Rectangle): void {
+    if (this.#noteCollapsed && this.#expandedNoteBounds) {
+      this.#expandedNoteBounds = {
+        ...this.#expandedNoteBounds,
+        x: bounds.x,
+        y: bounds.y,
+      };
+      this.#options.config.setWindowBounds(this.#expandedNoteBounds);
+      return;
+    }
+    this.#options.config.setWindowBounds(bounds);
+  }
+
+  #clearDockState(): void {
+    const changed = this.#dockState.phase !== 'undocked' || this.#dockState.edge !== null;
+    this.#cancelAutoHide();
+    this.#stopPointerTracking();
+    this.#dockState = createUndockedState(this.#dockState);
+    if (changed) this.#broadcastDockState();
+  }
+
+  #broadcastDockState(): void {
+    const window = this.#noteWindow;
+    if (!window || window.isDestroyed()) return;
+    window.webContents.send(IPC.noteDockStateChanged, this.getNoteDockState());
+  }
+
+  #cancelAutoHide(): void {
+    if (!this.#autoHideTimer) return;
+    clearTimeout(this.#autoHideTimer);
+    this.#autoHideTimer = null;
+  }
+
+  #clearDockTimers(): void {
+    this.#cancelAutoHide();
+    this.#stopPointerTracking();
+    if (this.#moveSettleTimer) clearTimeout(this.#moveSettleTimer);
+    if (this.#programmaticBoundsTimer) clearTimeout(this.#programmaticBoundsTimer);
+    this.#moveSettleTimer = null;
+    this.#programmaticBoundsTimer = null;
+    this.#programmaticBoundsChange = false;
+  }
+
+  #readPointerInsideNote(fallback: boolean): boolean {
+    const window = this.#noteWindow;
+    if (!window || window.isDestroyed()) return fallback;
+    try {
+      const point = screen.getCursorScreenPoint();
+      const bounds = window.getBounds();
+      return (
+        point.x >= bounds.x &&
+        point.x < bounds.x + bounds.width &&
+        point.y >= bounds.y &&
+        point.y < bounds.y + bounds.height
+      );
+    } catch {
+      return fallback;
+    }
+  }
+
+  #applyPointerInside(pointerInside: boolean): void {
+    const pointerEntered = pointerInside && !this.#dockState.pointerInside;
+    const pointerLeft = !pointerInside && this.#dockState.pointerInside;
+    this.#dockState.pointerInside = pointerInside;
+
+    if (pointerInside) {
+      this.#cancelAutoHide();
+      if (pointerEntered && this.#dockState.phase === 'hidden') {
+        this.#revealDockedNote('pointer');
+      }
+      return;
+    }
+    if (pointerLeft && !this.#dockState.interactionBlocked) this.#scheduleAutoHide();
+  }
+
+  #startPointerTracking(): void {
+    if (this.#pointerPollTimer || this.#dockState.phase === 'undocked') return;
+    this.#applyPointerInside(this.#readPointerInsideNote(this.#dockState.pointerInside));
+    this.#pointerPollTimer = setInterval(() => {
+      if (this.#dockState.phase === 'undocked') {
+        this.#stopPointerTracking();
+        return;
+      }
+      this.#applyPointerInside(this.#readPointerInsideNote(this.#dockState.pointerInside));
+    }, NOTE_POINTER_POLL_MS);
+  }
+
+  #stopPointerTracking(): void {
+    if (!this.#pointerPollTimer) return;
+    clearInterval(this.#pointerPollTimer);
+    this.#pointerPollTimer = null;
+  }
+
+  #registerDisplayListeners(): void {
+    if (this.#displayListenersRegistered) return;
+    this.#displayListenersRegistered = true;
+    screen.on('display-added', this.#displayChangeHandler);
+    screen.on('display-removed', this.#displayChangeHandler);
+    screen.on('display-metrics-changed', this.#displayChangeHandler);
+  }
+
+  #unregisterDisplayListeners(): void {
+    if (!this.#displayListenersRegistered) return;
+    this.#displayListenersRegistered = false;
+    screen.removeListener('display-added', this.#displayChangeHandler);
+    screen.removeListener('display-removed', this.#displayChangeHandler);
+    screen.removeListener('display-metrics-changed', this.#displayChangeHandler);
+  }
+
+  #handleDisplayChange(): void {
+    const window = this.#noteWindow;
+    if (!window || window.isDestroyed()) return;
+    this.#clearDockTimers();
+    this.#revealDockedNote('display');
+    const persisted = this.#dockState.visibleBounds ?? window.getBounds();
+    const restored = restoreVisibleBounds({
+      saved:
+        this.#noteCollapsed && this.#expandedNoteBounds
+          ? { ...this.#expandedNoteBounds, x: persisted.x, y: persisted.y }
+          : persisted,
+      displays: toDisplayAreas(),
+      defaults: { width: DEFAULT_NOTE_WIDTH, height: DEFAULT_NOTE_HEIGHT },
+      minimum: { width: MIN_NOTE_WIDTH, height: MIN_NOTE_HEIGHT },
+    });
+    this.#clearDockState();
+    this.#saveVisibleBounds(restored);
+    if (this.#noteCollapsed) {
+      this.#expandedNoteBounds = restored;
+      this.#setProgrammaticBounds(window, { ...restored, height: COLLAPSED_NOTE_HEIGHT });
+    } else {
+      this.#setProgrammaticBounds(window, restored);
+    }
+  }
+
   #scheduleBoundsSave(window: BrowserWindow): void {
-    if (this.#noteCollapsed) return;
+    if (
+      this.#noteCollapsed ||
+      this.#programmaticBoundsChange ||
+      this.#dockState.phase === 'hidden'
+    ) {
+      return;
+    }
     // resize/move 会高频触发，防抖后再交给 ConfigService 持久化。
     if (this.#boundsTimer) clearTimeout(this.#boundsTimer);
     this.#boundsTimer = setTimeout(() => {
       this.#boundsTimer = null;
       if (!window.isDestroyed() && !window.isMinimized() && !window.isMaximized()) {
-        this.#options.config.setWindowBounds(window.getBounds());
+        const bounds = this.#dockState.visibleBounds ?? window.getBounds();
+        this.#saveVisibleBounds(bounds);
       }
     }, 500);
   }

@@ -37,6 +37,7 @@ const knownConfigSchema = z.object({
   llm: llmConnectionSettingsSchema,
   remote_consent_confirmed: z.boolean(),
   always_on_top: z.boolean(),
+  edge_auto_hide: z.boolean(),
   window_bounds: windowBoundsSchema.nullable(),
   completed_expanded: z.boolean(),
   added_date_display: z.enum(['hover', 'always']),
@@ -54,6 +55,7 @@ export type ConfigPatch = Partial<
     | 'llm'
     | 'remote_consent_confirmed'
     | 'always_on_top'
+    | 'edge_auto_hide'
     | 'window_bounds'
     | 'completed_expanded'
     | 'added_date_display'
@@ -275,6 +277,8 @@ const parsePatch = (patch: ConfigPatch): ConfigPatch => {
   if ('remote_consent_confirmed' in patch)
     parsedPatch.remote_consent_confirmed = z.boolean().parse(patch.remote_consent_confirmed);
   if ('always_on_top' in patch) parsedPatch.always_on_top = z.boolean().parse(patch.always_on_top);
+  if ('edge_auto_hide' in patch)
+    parsedPatch.edge_auto_hide = z.boolean().parse(patch.edge_auto_hide);
   if ('completed_expanded' in patch)
     parsedPatch.completed_expanded = z.boolean().parse(patch.completed_expanded);
   if ('added_date_display' in patch)

@@ -71,6 +71,9 @@ export function SettingsPage() {
         ...(patch.noteColor !== undefined ? { noteColor: patch.noteColor } : {}),
         ...(patch.noteOpacity !== undefined ? { noteOpacity: patch.noteOpacity } : {}),
         ...(patch.alwaysOnTop !== undefined ? { alwaysOnTop: patch.alwaysOnTop } : {}),
+        ...(patch.edgeAutoHideEnabled !== undefined
+          ? { edgeAutoHideEnabled: patch.edgeAutoHideEnabled }
+          : {}),
         ...(patch.completedExpanded !== undefined
           ? { completedExpanded: patch.completedExpanded }
           : {}),
@@ -292,6 +295,13 @@ export function SettingsPage() {
             disabled={saving}
             label="保持置顶"
             onChange={(checked) => void commit({ alwaysOnTop: checked })}
+          />
+          <SettingSwitch
+            checked={settings.edgeAutoHideEnabled}
+            description="拖到屏幕左侧、右侧或顶部后，鼠标离开时自动收起为边缘提示条。"
+            disabled={saving}
+            label="贴边自动隐藏"
+            onChange={(checked) => void commit({ edgeAutoHideEnabled: checked })}
           />
           <SettingSwitch
             checked={settings.completedExpanded}

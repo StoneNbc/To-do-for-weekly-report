@@ -26,6 +26,8 @@ export const IPC = {
   windowGenerateCurrentWeekReport: 'window:generate-current-week-report',
   windowShowNote: 'window:show-note',
   windowSetNoteCollapsed: 'window:set-note-collapsed',
+  windowGetNoteDockState: 'window:get-note-dock-state',
+  windowSetNoteInteractionState: 'window:set-note-interaction-state',
   windowOpenSettings: 'window:open-settings',
   windowSetSettingsDirty: 'window:set-settings-dirty',
   windowDiscardSettingsChangesAndClose: 'window:discard-settings-changes-and-close',
@@ -49,4 +51,5 @@ export const IPC = {
   dataChanged: 'event:data-changed',
   reportGenerationRequested: 'event:report-generation-requested',
   settingsCloseRequested: 'event:settings-close-requested',
+  noteDockStateChanged: 'event:note-dock-state-changed',
 } as const;

@@ -38,6 +38,7 @@ describe('ConfigService', () => {
 
     expect(config.cleanup_time).toBe('00:00');
     expect(config.always_on_top).toBe(true);
+    expect(config.edge_auto_hide).toBe(false);
     expect(config.note_color).toBe('#FFF8E7');
     expect(config.note_opacity).toBe(1);
     expect(persisted.schema_version).toBe(2);
@@ -68,6 +69,7 @@ describe('ConfigService', () => {
 
     expect(config.cleanup_time).toBe('00:00');
     expect(config.always_on_top).toBe(true);
+    expect(config.edge_auto_hide).toBe(false);
     expect(config.agent).toBe('template');
     expect(config.note_color).toBe('#FFF8E7');
     expect(config.note_opacity).toBe(1);
@@ -110,6 +112,20 @@ describe('ConfigService', () => {
     expect(config.llm.model).toBe('self-hosted-model');
     expect(config.llm.allowInsecureHttp).toBe(false);
     expect(persisted.llm.allowInsecureHttp).toBe(false);
+  });
+
+  it('adds the disabled edge auto-hide default to an existing v2 configuration', async () => {
+    const configFile = await makeConfigPath();
+    const legacy = structuredClone(DEFAULT_CONFIG) as unknown as Record<string, unknown>;
+    delete legacy.edge_auto_hide;
+    await writeFile(configFile, JSON.stringify(legacy), 'utf8');
+    const service = new ConfigService({ configFile, logger: makeLogger(), writeDelayMs: 1 });
+
+    const config = await service.initialize();
+    const persisted = JSON.parse(await readFile(configFile, 'utf8')) as Record<string, unknown>;
+
+    expect(config.edge_auto_hide).toBe(false);
+    expect(persisted.edge_auto_hide).toBe(false);
   });
 
   it('coalesces window state changes and flushes the latest value', async () => {

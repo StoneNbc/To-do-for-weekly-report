@@ -34,17 +34,27 @@ describe('SettingsService', () => {
     });
     expect(config.commit).not.toHaveBeenCalled();
 
-    const snapshot = await service.update({ noteColor: '#E0F2FE', alwaysOnTop: false });
+    const snapshot = await service.update({
+      noteColor: '#E0F2FE',
+      alwaysOnTop: false,
+      edgeAutoHideEnabled: true,
+    });
     expect(snapshot).toEqual({
       noteColor: '#E0F2FE',
       noteOpacity: 1,
       alwaysOnTop: false,
+      edgeAutoHideEnabled: true,
       completedExpanded: false,
       addedDateDisplay: 'hover',
       dataDirectory: '/safe/data',
     });
     expect(runtime.applySettings).toHaveBeenCalledWith(snapshot);
     expect(runtime.broadcastSettingsChanged).toHaveBeenCalledWith(snapshot);
+    expect(config.commit).toHaveBeenLastCalledWith({
+      note_color: '#E0F2FE',
+      always_on_top: false,
+      edge_auto_hide: true,
+    });
   });
 
   it('restores the last successful appearance after persistence fails', async () => {

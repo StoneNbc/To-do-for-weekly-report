@@ -6,6 +6,7 @@ import type {
   SettingsPatch,
   SettingsSnapshot,
   NoteAppearance,
+  NoteDockSnapshot,
   LlmConnectionTestInput,
   ReportSettingsPatch,
 } from '../shared/domain';
@@ -48,6 +49,9 @@ const api: ElectronAPI = {
     generateCurrentWeekReport: () => ipcRenderer.invoke(IPC.windowGenerateCurrentWeekReport),
     showNote: () => ipcRenderer.invoke(IPC.windowShowNote),
     setNoteCollapsed: (collapsed) => ipcRenderer.invoke(IPC.windowSetNoteCollapsed, collapsed),
+    getNoteDockState: () => ipcRenderer.invoke(IPC.windowGetNoteDockState),
+    setNoteInteractionState: (input) =>
+      ipcRenderer.invoke(IPC.windowSetNoteInteractionState, input),
     openSettings: () => ipcRenderer.invoke(IPC.windowOpenSettings),
     setSettingsDirty: (dirty) => ipcRenderer.invoke(IPC.windowSetSettingsDirty, dirty),
     discardSettingsChangesAndClose: () =>
@@ -105,6 +109,12 @@ const api: ElectronAPI = {
       const handler = () => listener();
       ipcRenderer.on(IPC.settingsCloseRequested, handler);
       return () => ipcRenderer.removeListener(IPC.settingsCloseRequested, handler);
+    },
+    onNoteDockStateChanged: (listener) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload: NoteDockSnapshot) =>
+        listener(payload);
+      ipcRenderer.on(IPC.noteDockStateChanged, handler);
+      return () => ipcRenderer.removeListener(IPC.noteDockStateChanged, handler);
     },
   },
 };

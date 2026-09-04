@@ -42,6 +42,7 @@ import { ReportSettingsService } from './services/reportSettingsService';
 import { registerReportSettingsHandlers } from './ipc/reportSettingsHandlers';
 import { DEFAULT_REMOTE_REPORT_TEMPLATE, DEFAULT_REPORT_PROMPT } from '../shared/constants';
 import { validateReportPrompt } from './agents/reportTemplate';
+import { noteInteractionStateSchema } from './ipc/schemas';
 
 // Main Process 组合根：这里只负责实例化和接线，文本规则与业务流程留在各自 Service。
 const dataPaths = resolveDataPaths({ app });
@@ -280,6 +281,10 @@ const registerPlatformHandlers = (
   ipcMain.handle(IPC.windowSetNoteCollapsed, (_event, collapsed: unknown) => {
     if (typeof collapsed !== 'boolean') throw new RangeError('便利贴收起状态必须是布尔值');
     return windows.setFloatingNoteCollapsed(collapsed);
+  });
+  ipcMain.handle(IPC.windowGetNoteDockState, () => windows.getNoteDockState());
+  ipcMain.handle(IPC.windowSetNoteInteractionState, (_event, input: unknown) => {
+    windows.setNoteInteractionState(noteInteractionStateSchema.parse(input));
   });
   ipcMain.handle(IPC.windowOpenSettings, async () => {
     await windows.openSettings();

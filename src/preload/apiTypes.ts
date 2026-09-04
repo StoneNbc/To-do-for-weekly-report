@@ -9,6 +9,8 @@ import type {
   SettingsPatch,
   SettingsSnapshot,
   NoteAppearance,
+  NoteDockSnapshot,
+  NoteInteractionState,
   ReportDraft,
   LlmConnectionTestInput,
   ReportSettingsPatch,
@@ -100,6 +102,8 @@ export interface ElectronAPI {
     generateCurrentWeekReport(): Promise<void>;
     showNote(): Promise<void>;
     setNoteCollapsed(collapsed: boolean): Promise<boolean>;
+    getNoteDockState(): Promise<NoteDockSnapshot>;
+    setNoteInteractionState(input: NoteInteractionState): Promise<void>;
     openSettings(): Promise<void>;
     setSettingsDirty(dirty: boolean): Promise<void>;
     discardSettingsChangesAndClose(): Promise<void>;
@@ -134,5 +138,6 @@ export interface ElectronAPI {
     onAppearancePreviewed(listener: (appearance: NoteAppearance) => void): () => void;
     onReportGenerationRequested(listener: () => void): () => void;
     onSettingsCloseRequested(listener: () => void): () => void;
+    onNoteDockStateChanged(listener: (snapshot: NoteDockSnapshot) => void): () => void;
   };
 }

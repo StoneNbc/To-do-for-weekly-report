@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import './setup';
 import { createMockElectronAPI } from '../../src/renderer/dev/mockElectronAPI';
@@ -22,6 +22,45 @@ function renderPage(scenario: Parameters<typeof createMockElectronAPI>[0] = 'def
 }
 
 describe('FloatingNotePage', () => {
+  it('隐藏时只显示边缘提示条，鼠标进入后请求恢复', async () => {
+    const controller = renderPage();
+    await screen.findByRole('list', { name: '待完成事项' });
+
+    act(() => controller.emitNoteDockState({ edge: 'left', phase: 'hidden' }));
+    expect(screen.getByRole('main')).toHaveStyle({ '--note-edge-reveal-size': '4px' });
+    expect(screen.getByTestId('note-edge-reveal')).toHaveClass('note-edge-reveal-left');
+    expect(screen.queryByRole('list', { name: '待完成事项' })).toBeNull();
+
+    fireEvent.pointerEnter(screen.getByRole('main'));
+    await waitFor(() =>
+      expect(controller.getLastNoteInteractionState()).toEqual({
+        pointerInside: true,
+        autoHideBlocked: false,
+      }),
+    );
+  });
+
+  it('菜单和文本输入期间阻止贴边自动隐藏', async () => {
+    const controller = renderPage();
+    const input = await screen.findByRole('textbox', { name: '添加待办' });
+
+    fireEvent.click(screen.getByRole('button', { name: '打开便利贴菜单' }));
+    await waitFor(() =>
+      expect(controller.getLastNoteInteractionState().autoHideBlocked).toBe(true),
+    );
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.focus(input);
+    await waitFor(() =>
+      expect(controller.getLastNoteInteractionState().autoHideBlocked).toBe(true),
+    );
+
+    fireEvent.blur(input);
+    await waitFor(() =>
+      expect(controller.getLastNoteInteractionState().autoHideBlocked).toBe(false),
+    );
+  });
+
   it('收起时只保留标题栏，并可恢复完整便利贴', async () => {
     const controller = renderPage();
     const setNoteCollapsed = vi.spyOn(controller.api.window, 'setNoteCollapsed');

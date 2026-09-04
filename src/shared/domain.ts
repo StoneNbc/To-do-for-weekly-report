@@ -177,6 +177,19 @@ export interface WindowBounds {
   height: number;
 }
 
+export type NoteDockEdge = 'left' | 'right' | 'top';
+export type NoteDockPhase = 'undocked' | 'docked-visible' | 'hidden';
+
+export interface NoteDockSnapshot {
+  edge: NoteDockEdge | null;
+  phase: NoteDockPhase;
+}
+
+export interface NoteInteractionState {
+  pointerInside: boolean;
+  autoHideBlocked: boolean;
+}
+
 export interface AppConfig {
   schema_version: 2;
   cleanup_time: '00:00';
@@ -187,6 +200,7 @@ export interface AppConfig {
   llm: LlmConnectionSettings;
   remote_consent_confirmed: boolean;
   always_on_top: boolean;
+  edge_auto_hide: boolean;
   window_bounds: WindowBounds | null;
   completed_expanded: boolean;
   added_date_display: AddedDateDisplay;
@@ -201,6 +215,7 @@ export interface SettingsSnapshot {
   noteColor: string;
   noteOpacity: number;
   alwaysOnTop: boolean;
+  edgeAutoHideEnabled: boolean;
   completedExpanded: boolean;
   addedDateDisplay: AddedDateDisplay;
   dataDirectory: string;
@@ -210,6 +225,7 @@ export interface SettingsPatch {
   noteColor?: string | undefined;
   noteOpacity?: number | undefined;
   alwaysOnTop?: boolean | undefined;
+  edgeAutoHideEnabled?: boolean | undefined;
   completedExpanded?: boolean | undefined;
   addedDateDisplay?: AddedDateDisplay | undefined;
 }

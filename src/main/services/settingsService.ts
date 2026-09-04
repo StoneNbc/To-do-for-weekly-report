@@ -81,6 +81,7 @@ export class SettingsService {
       noteColor: config.note_color,
       noteOpacity: config.note_opacity,
       alwaysOnTop: config.always_on_top,
+      edgeAutoHideEnabled: config.edge_auto_hide,
       completedExpanded: config.completed_expanded,
       addedDateDisplay: config.added_date_display,
       dataDirectory: this.#dataDirectory,
@@ -93,10 +94,11 @@ const toConfigPatch = (patch: SettingsPatch): ConfigPatch => {
   if (patch.noteColor !== undefined) configPatch.note_color = patch.noteColor;
   if (patch.noteOpacity !== undefined) configPatch.note_opacity = patch.noteOpacity;
   if (patch.alwaysOnTop !== undefined) configPatch.always_on_top = patch.alwaysOnTop;
+  if (patch.edgeAutoHideEnabled !== undefined)
+    configPatch.edge_auto_hide = patch.edgeAutoHideEnabled;
   if (patch.completedExpanded !== undefined)
     configPatch.completed_expanded = patch.completedExpanded;
-  if (patch.addedDateDisplay !== undefined)
-    configPatch.added_date_display = patch.addedDateDisplay;
+  if (patch.addedDateDisplay !== undefined) configPatch.added_date_display = patch.addedDateDisplay;
   return configPatch;
 };
 

@@ -5,6 +5,8 @@ import type {
   SettingsPatch,
   SettingsSnapshot,
   NoteAppearance,
+  NoteDockSnapshot,
+  NoteInteractionState,
   ReportDraft,
   ReportSettingsPatch,
   ReportSettingsSnapshot,
@@ -119,6 +121,8 @@ export interface MockElectronAPIController {
   emit(event: DataChangedEvent): void;
   emitSettings(snapshot?: SettingsSnapshot): void;
   emitSettingsCloseRequested(): void;
+  emitNoteDockState(snapshot: NoteDockSnapshot): void;
+  getLastNoteInteractionState(): NoteInteractionState;
 }
 
 export function createMockElectronAPI(
@@ -130,6 +134,7 @@ export function createMockElectronAPI(
     noteColor: '#FFF8E7',
     noteOpacity: 1,
     alwaysOnTop: true,
+    edgeAutoHideEnabled: false,
     completedExpanded: false,
     addedDateDisplay: 'hover',
     dataDirectory: '/本机/悬浮便利贴/data',
@@ -150,6 +155,12 @@ export function createMockElectronAPI(
   const appearanceListeners = new Set<(appearance: NoteAppearance) => void>();
   const reportGenerationListeners = new Set<() => void>();
   const settingsCloseListeners = new Set<() => void>();
+  const noteDockListeners = new Set<(snapshot: NoteDockSnapshot) => void>();
+  let noteDockState: NoteDockSnapshot = { edge: null, phase: 'undocked' };
+  let noteInteractionState: NoteInteractionState = {
+    pointerInside: false,
+    autoHideBlocked: false,
+  };
 
   const nextTodaySnapshot = (tasks: TodaySnapshot['tasks']): TodaySnapshot => {
     const revision = `today-r-wave2-${revisionSequence++}`;
@@ -455,6 +466,12 @@ export function createMockElectronAPI(
         noteCollapsed = collapsed;
         return noteCollapsed;
       },
+      async getNoteDockState() {
+        return clone(noteDockState);
+      },
+      async setNoteInteractionState(input: NoteInteractionState) {
+        noteInteractionState = clone(input);
+      },
       async openSettings() {},
       async setSettingsDirty() {},
       async discardSettingsChangesAndClose() {},
@@ -487,6 +504,9 @@ export function createMockElectronAPI(
           ...(input.noteColor !== undefined ? { noteColor: input.noteColor } : {}),
           ...(input.noteOpacity !== undefined ? { noteOpacity: input.noteOpacity } : {}),
           ...(input.alwaysOnTop !== undefined ? { alwaysOnTop: input.alwaysOnTop } : {}),
+          ...(input.edgeAutoHideEnabled !== undefined
+            ? { edgeAutoHideEnabled: input.edgeAutoHideEnabled }
+            : {}),
           ...(input.completedExpanded !== undefined
             ? { completedExpanded: input.completedExpanded }
             : {}),
@@ -576,6 +596,10 @@ export function createMockElectronAPI(
         settingsCloseListeners.add(listener);
         return () => settingsCloseListeners.delete(listener);
       },
+      onNoteDockStateChanged(listener: (snapshot: NoteDockSnapshot) => void) {
+        noteDockListeners.add(listener);
+        return () => noteDockListeners.delete(listener);
+      },
     },
   } satisfies ElectronAPI;
 
@@ -590,6 +614,13 @@ export function createMockElectronAPI(
     },
     emitSettingsCloseRequested() {
       settingsCloseListeners.forEach((listener) => listener());
+    },
+    emitNoteDockState(snapshot) {
+      noteDockState = clone(snapshot);
+      noteDockListeners.forEach((listener) => listener(clone(noteDockState)));
+    },
+    getLastNoteInteractionState() {
+      return clone(noteInteractionState);
     },
   };
 }
