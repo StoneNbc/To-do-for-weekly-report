@@ -37,6 +37,7 @@ const knownConfigSchema = z.object({
   llm: llmConnectionSettingsSchema,
   remote_consent_confirmed: z.boolean(),
   always_on_top: z.boolean(),
+  show_on_fullscreen: z.boolean(),
   edge_auto_hide: z.boolean(),
   window_bounds: windowBoundsSchema.nullable(),
   completed_expanded: z.boolean(),
@@ -55,6 +56,7 @@ export type ConfigPatch = Partial<
     | 'llm'
     | 'remote_consent_confirmed'
     | 'always_on_top'
+    | 'show_on_fullscreen'
     | 'edge_auto_hide'
     | 'window_bounds'
     | 'completed_expanded'
@@ -108,6 +110,11 @@ export const parseConfig = (input: unknown, onInvalid?: (field: string) => void)
       candidate[key] = defaults[key];
       onInvalid?.(key);
     }
+  }
+
+  if (candidate.always_on_top === false && candidate.show_on_fullscreen === true) {
+    candidate.show_on_fullscreen = false;
+    onInvalid?.('show_on_fullscreen');
   }
 
   return candidate as AppConfig;
@@ -277,6 +284,8 @@ const parsePatch = (patch: ConfigPatch): ConfigPatch => {
   if ('remote_consent_confirmed' in patch)
     parsedPatch.remote_consent_confirmed = z.boolean().parse(patch.remote_consent_confirmed);
   if ('always_on_top' in patch) parsedPatch.always_on_top = z.boolean().parse(patch.always_on_top);
+  if ('show_on_fullscreen' in patch)
+    parsedPatch.show_on_fullscreen = z.boolean().parse(patch.show_on_fullscreen);
   if ('edge_auto_hide' in patch)
     parsedPatch.edge_auto_hide = z.boolean().parse(patch.edge_auto_hide);
   if ('completed_expanded' in patch)

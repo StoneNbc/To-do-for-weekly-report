@@ -54,7 +54,9 @@ export class SettingsService {
   }
 
   async update(patch: SettingsPatch): Promise<SettingsSnapshot> {
-    const configPatch = toConfigPatch(patch);
+    const normalizedPatch =
+      patch.alwaysOnTop === false ? { ...patch, showOnFullScreen: false } : patch;
+    const configPatch = toConfigPatch(normalizedPatch);
     try {
       const config = await this.#config.commit(configPatch);
       const snapshot = this.#toSnapshot(config);
@@ -81,6 +83,7 @@ export class SettingsService {
       noteColor: config.note_color,
       noteOpacity: config.note_opacity,
       alwaysOnTop: config.always_on_top,
+      showOnFullScreen: config.show_on_fullscreen,
       edgeAutoHideEnabled: config.edge_auto_hide,
       completedExpanded: config.completed_expanded,
       addedDateDisplay: config.added_date_display,
@@ -94,6 +97,7 @@ const toConfigPatch = (patch: SettingsPatch): ConfigPatch => {
   if (patch.noteColor !== undefined) configPatch.note_color = patch.noteColor;
   if (patch.noteOpacity !== undefined) configPatch.note_opacity = patch.noteOpacity;
   if (patch.alwaysOnTop !== undefined) configPatch.always_on_top = patch.alwaysOnTop;
+  if (patch.showOnFullScreen !== undefined) configPatch.show_on_fullscreen = patch.showOnFullScreen;
   if (patch.edgeAutoHideEnabled !== undefined)
     configPatch.edge_auto_hide = patch.edgeAutoHideEnabled;
   if (patch.completedExpanded !== undefined)

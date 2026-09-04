@@ -76,6 +76,7 @@ export const appearancePreviewSchema = z
 export const settingsPatchSchema = appearancePreviewSchema
   .safeExtend({
     alwaysOnTop: z.boolean().optional(),
+    showOnFullScreen: z.boolean().optional(),
     edgeAutoHideEnabled: z.boolean().optional(),
     completedExpanded: z.boolean().optional(),
     addedDateDisplay: z.enum(['hover', 'always']).optional(),

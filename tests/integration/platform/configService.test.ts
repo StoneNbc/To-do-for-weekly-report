@@ -38,6 +38,7 @@ describe('ConfigService', () => {
 
     expect(config.cleanup_time).toBe('00:00');
     expect(config.always_on_top).toBe(true);
+    expect(config.show_on_fullscreen).toBe(true);
     expect(config.edge_auto_hide).toBe(false);
     expect(config.note_color).toBe('#FFF8E7');
     expect(config.note_opacity).toBe(1);
@@ -114,10 +115,11 @@ describe('ConfigService', () => {
     expect(persisted.llm.allowInsecureHttp).toBe(false);
   });
 
-  it('adds the disabled edge auto-hide default to an existing v2 configuration', async () => {
+  it('adds new window behavior defaults to an existing v2 configuration', async () => {
     const configFile = await makeConfigPath();
     const legacy = structuredClone(DEFAULT_CONFIG) as unknown as Record<string, unknown>;
     delete legacy.edge_auto_hide;
+    delete legacy.show_on_fullscreen;
     await writeFile(configFile, JSON.stringify(legacy), 'utf8');
     const service = new ConfigService({ configFile, logger: makeLogger(), writeDelayMs: 1 });
 
@@ -126,6 +128,24 @@ describe('ConfigService', () => {
 
     expect(config.edge_auto_hide).toBe(false);
     expect(persisted.edge_auto_hide).toBe(false);
+    expect(config.show_on_fullscreen).toBe(true);
+    expect(persisted.show_on_fullscreen).toBe(true);
+  });
+
+  it('disables fullscreen visibility when always-on-top is disabled', async () => {
+    const configFile = await makeConfigPath();
+    await writeFile(
+      configFile,
+      JSON.stringify({ ...DEFAULT_CONFIG, always_on_top: false, show_on_fullscreen: true }),
+      'utf8',
+    );
+    const service = new ConfigService({ configFile, logger: makeLogger(), writeDelayMs: 1 });
+
+    const config = await service.initialize();
+    const persisted = JSON.parse(await readFile(configFile, 'utf8')) as Record<string, unknown>;
+
+    expect(config.show_on_fullscreen).toBe(false);
+    expect(persisted.show_on_fullscreen).toBe(false);
   });
 
   it('coalesces window state changes and flushes the latest value', async () => {

@@ -79,6 +79,7 @@ export const DEFAULT_CONFIG = {
   llm: DEFAULT_LLM_SETTINGS,
   remote_consent_confirmed: false,
   always_on_top: true,
+  show_on_fullscreen: true,
   edge_auto_hide: false,
   window_bounds: null,
   completed_expanded: false,

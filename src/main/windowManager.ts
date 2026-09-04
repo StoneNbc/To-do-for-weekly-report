@@ -89,6 +89,7 @@ export class WindowManager {
   #autoHideTimer: NodeJS.Timeout | null = null;
   #programmaticBoundsTimer: NodeJS.Timeout | null = null;
   #pointerPollTimer: NodeJS.Timeout | null = null;
+  #visibleOnFullScreenApplied: boolean | null = null;
   #programmaticBoundsChange = false;
   #pendingReportGeneration = false;
   #noteCollapsed = false;
@@ -155,7 +156,8 @@ export class WindowManager {
     });
     this.#noteWindow = noteWindow;
     this.#dockState = createUndockedState();
-    this.#applyAlwaysOnTop(config.always_on_top);
+    this.#visibleOnFullScreenApplied = null;
+    this.#applyAlwaysOnTop(config.always_on_top, config.show_on_fullscreen);
     this.#registerDisplayListeners();
 
     noteWindow.on('ready-to-show', () => {
@@ -174,6 +176,7 @@ export class WindowManager {
       this.#noteCollapsed = false;
       this.#expandedNoteBounds = null;
       this.#dockState = createUndockedState();
+      this.#visibleOnFullScreenApplied = null;
     });
     noteWindow.on('will-move', () => {
       this.#handleManualNoteMove();
@@ -400,7 +403,7 @@ export class WindowManager {
   applySettings(snapshot: SettingsSnapshot): void {
     const noteWindow = this.#noteWindow;
     if (noteWindow && !noteWindow.isDestroyed()) noteWindow.setOpacity(snapshot.noteOpacity);
-    this.#applyAlwaysOnTop(snapshot.alwaysOnTop);
+    this.#applyAlwaysOnTop(snapshot.alwaysOnTop, snapshot.showOnFullScreen);
     if (!snapshot.edgeAutoHideEnabled) {
       this.#revealDockedNote('setting');
       this.#clearDockState();
@@ -416,8 +419,10 @@ export class WindowManager {
   }
 
   setAlwaysOnTop(enabled: boolean): void {
-    this.#options.config.update({ always_on_top: enabled });
-    this.#applyAlwaysOnTop(enabled);
+    const config = this.#options.config.update(
+      enabled ? { always_on_top: true } : { always_on_top: false, show_on_fullscreen: false },
+    );
+    this.#applyAlwaysOnTop(config.always_on_top, config.show_on_fullscreen);
   }
 
   saveCurrentBounds(): void {
@@ -478,11 +483,17 @@ export class WindowManager {
     }
   }
 
-  #applyAlwaysOnTop(enabled: boolean): void {
+  #applyAlwaysOnTop(enabled: boolean, showOnFullScreen: boolean): void {
     const noteWindow = this.#noteWindow;
     if (!noteWindow || noteWindow.isDestroyed()) return;
     noteWindow.setAlwaysOnTop(enabled, enabled ? 'floating' : 'normal');
-    noteWindow.setVisibleOnAllWorkspaces(false);
+    const visibleOnFullScreen = enabled && showOnFullScreen;
+    if (this.#visibleOnFullScreenApplied === visibleOnFullScreen) return;
+    noteWindow.setVisibleOnAllWorkspaces(
+      visibleOnFullScreen,
+      visibleOnFullScreen ? { visibleOnFullScreen: true } : undefined,
+    );
+    this.#visibleOnFullScreenApplied = visibleOnFullScreen;
   }
 
   #sendPendingReportGeneration(window: BrowserWindow): void {

@@ -71,6 +71,9 @@ export function SettingsPage() {
         ...(patch.noteColor !== undefined ? { noteColor: patch.noteColor } : {}),
         ...(patch.noteOpacity !== undefined ? { noteOpacity: patch.noteOpacity } : {}),
         ...(patch.alwaysOnTop !== undefined ? { alwaysOnTop: patch.alwaysOnTop } : {}),
+        ...(patch.showOnFullScreen !== undefined
+          ? { showOnFullScreen: patch.showOnFullScreen }
+          : {}),
         ...(patch.edgeAutoHideEnabled !== undefined
           ? { edgeAutoHideEnabled: patch.edgeAutoHideEnabled }
           : {}),
@@ -291,10 +294,17 @@ export function SettingsPage() {
         <SettingsCard title="通用">
           <SettingSwitch
             checked={settings.alwaysOnTop}
-            description="让便利贴保持在普通窗口上方，但不覆盖系统全屏应用。"
+            description="让便利贴保持在普通窗口上方。关闭后也会关闭全屏应用显示。"
             disabled={saving}
             label="保持置顶"
             onChange={(checked) => void commit({ alwaysOnTop: checked })}
+          />
+          <SettingSwitch
+            checked={settings.showOnFullScreen}
+            description="在其他 macOS 桌面和常规全屏应用中继续显示便利贴；需要先开启保持置顶。"
+            disabled={saving || !settings.alwaysOnTop}
+            label="在全屏应用中显示"
+            onChange={(checked) => void commit({ showOnFullScreen: checked })}
           />
           <SettingSwitch
             checked={settings.edgeAutoHideEnabled}

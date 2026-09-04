@@ -18,6 +18,7 @@ const snapshot = {
   noteColor: '#FFF8E7',
   noteOpacity: 1,
   alwaysOnTop: true,
+  showOnFullScreen: true,
   edgeAutoHideEnabled: false,
   completedExpanded: false,
   addedDateDisplay: 'hover' as const,
@@ -58,6 +59,7 @@ describe('settings IPC handlers', () => {
       {
         noteColor: '#e0f2fe',
         noteOpacity: 0.8,
+        showOnFullScreen: true,
         edgeAutoHideEnabled: true,
       },
     );
@@ -73,6 +75,7 @@ describe('settings IPC handlers', () => {
     expect(settings.update).toHaveBeenCalledWith({
       noteColor: '#E0F2FE',
       noteOpacity: 0.8,
+      showOnFullScreen: true,
       edgeAutoHideEnabled: true,
     });
     expect(invalid).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });

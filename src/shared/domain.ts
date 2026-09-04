@@ -200,6 +200,7 @@ export interface AppConfig {
   llm: LlmConnectionSettings;
   remote_consent_confirmed: boolean;
   always_on_top: boolean;
+  show_on_fullscreen: boolean;
   edge_auto_hide: boolean;
   window_bounds: WindowBounds | null;
   completed_expanded: boolean;
@@ -215,6 +216,7 @@ export interface SettingsSnapshot {
   noteColor: string;
   noteOpacity: number;
   alwaysOnTop: boolean;
+  showOnFullScreen: boolean;
   edgeAutoHideEnabled: boolean;
   completedExpanded: boolean;
   addedDateDisplay: AddedDateDisplay;
@@ -225,6 +227,7 @@ export interface SettingsPatch {
   noteColor?: string | undefined;
   noteOpacity?: number | undefined;
   alwaysOnTop?: boolean | undefined;
+  showOnFullScreen?: boolean | undefined;
   edgeAutoHideEnabled?: boolean | undefined;
   completedExpanded?: boolean | undefined;
   addedDateDisplay?: AddedDateDisplay | undefined;

@@ -55,8 +55,12 @@ describe('SettingsPage', () => {
     const copyPath = vi.spyOn(controller.api.settings, 'copyDataPath');
     await screen.findByRole('heading', { name: '设置' });
 
-    fireEvent.click(screen.getByRole('checkbox', { name: /保持置顶/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /^在全屏应用中显示/ }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ showOnFullScreen: false }));
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /^保持置顶/ }));
     await waitFor(() => expect(update).toHaveBeenCalledWith({ alwaysOnTop: false }));
+    expect(screen.getByRole('checkbox', { name: /^在全屏应用中显示/ })).toBeDisabled();
 
     fireEvent.click(screen.getByRole('checkbox', { name: /贴边自动隐藏/ }));
     await waitFor(() => expect(update).toHaveBeenCalledWith({ edgeAutoHideEnabled: true }));

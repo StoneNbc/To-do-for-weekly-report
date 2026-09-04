@@ -46,6 +46,8 @@ const electronMocks = vi.hoisted(() => {
     resizable = true;
     visible = false;
     destroyed = false;
+    readonly alwaysOnTopCalls: unknown[][] = [];
+    readonly visibleOnAllWorkspacesCalls: unknown[][] = [];
 
     constructor(options: unknown) {
       super();
@@ -85,8 +87,12 @@ const electronMocks = vi.hoisted(() => {
       this.resizable = resizable;
     }
 
-    setAlwaysOnTop(): void {}
-    setVisibleOnAllWorkspaces(): void {}
+    setAlwaysOnTop(...args: unknown[]): void {
+      this.alwaysOnTopCalls.push(args);
+    }
+    setVisibleOnAllWorkspaces(...args: unknown[]): void {
+      this.visibleOnAllWorkspacesCalls.push(args);
+    }
     setOpacity(): void {}
     isMinimized(): boolean {
       return false;
@@ -260,6 +266,7 @@ describe('WindowManager note auto-hide', () => {
       noteColor: '#FFF8E7',
       noteOpacity: 1,
       alwaysOnTop: true,
+      showOnFullScreen: true,
       edgeAutoHideEnabled: false,
       completedExpanded: false,
       addedDateDisplay: 'hover',
@@ -330,6 +337,51 @@ describe('WindowManager note auto-hide', () => {
     expect(manager.getNoteDockState()).toEqual({ edge: null, phase: 'undocked' });
     expect(window.getBounds()).toEqual({ x: 300, y: 160, width: 320, height: 400 });
     expect(config.snapshot().window_bounds).toEqual({ x: 300, y: 160, width: 320, height: 400 });
+    manager.closeAll();
+  });
+
+  it('shows the note across macOS Spaces only when always-on-top and fullscreen are enabled', async () => {
+    const config = makeConfig({ x: 300, y: 160, width: 320, height: 400 });
+    config.update({ edge_auto_hide: false });
+    const manager = new WindowManager({
+      config: config as unknown as ConfigService,
+      logger: makeLogger(),
+      preloadPath: '/preload.cjs',
+      rendererHtmlPath: '/index.html',
+      isQuitting: () => false,
+    });
+
+    const window = (await manager.createFloatingNote()) as unknown as InstanceType<
+      typeof electronMocks.MockBrowserWindow
+    >;
+    expect(window.visibleOnAllWorkspacesCalls).toEqual([[true, { visibleOnFullScreen: true }]]);
+
+    const baseSettings = {
+      noteColor: '#FFF8E7',
+      noteOpacity: 1,
+      alwaysOnTop: true,
+      showOnFullScreen: false,
+      edgeAutoHideEnabled: false,
+      completedExpanded: false,
+      addedDateDisplay: 'hover' as const,
+      dataDirectory: '/safe/data',
+    };
+    manager.applySettings(baseSettings);
+    expect(window.visibleOnAllWorkspacesCalls.at(-1)).toEqual([false, undefined]);
+
+    manager.applySettings({ ...baseSettings, showOnFullScreen: true });
+    expect(window.visibleOnAllWorkspacesCalls.at(-1)).toEqual([
+      true,
+      { visibleOnFullScreen: true },
+    ]);
+
+    const callCount = window.visibleOnAllWorkspacesCalls.length;
+    manager.applySettings({ ...baseSettings, showOnFullScreen: true, noteOpacity: 0.8 });
+    expect(window.visibleOnAllWorkspacesCalls).toHaveLength(callCount);
+
+    manager.applySettings({ ...baseSettings, alwaysOnTop: false, showOnFullScreen: true });
+    expect(window.alwaysOnTopCalls.at(-1)).toEqual([false, 'normal']);
+    expect(window.visibleOnAllWorkspacesCalls.at(-1)).toEqual([false, undefined]);
     manager.closeAll();
   });
 });

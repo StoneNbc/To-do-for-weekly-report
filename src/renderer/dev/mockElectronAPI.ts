@@ -134,6 +134,7 @@ export function createMockElectronAPI(
     noteColor: '#FFF8E7',
     noteOpacity: 1,
     alwaysOnTop: true,
+    showOnFullScreen: true,
     edgeAutoHideEnabled: false,
     completedExpanded: false,
     addedDateDisplay: 'hover',
@@ -504,6 +505,11 @@ export function createMockElectronAPI(
           ...(input.noteColor !== undefined ? { noteColor: input.noteColor } : {}),
           ...(input.noteOpacity !== undefined ? { noteOpacity: input.noteOpacity } : {}),
           ...(input.alwaysOnTop !== undefined ? { alwaysOnTop: input.alwaysOnTop } : {}),
+          ...(input.alwaysOnTop === false
+            ? { showOnFullScreen: false }
+            : input.showOnFullScreen !== undefined
+              ? { showOnFullScreen: input.showOnFullScreen }
+              : {}),
           ...(input.edgeAutoHideEnabled !== undefined
             ? { edgeAutoHideEnabled: input.edgeAutoHideEnabled }
             : {}),

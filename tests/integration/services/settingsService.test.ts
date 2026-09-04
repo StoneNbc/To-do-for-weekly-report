@@ -37,12 +37,14 @@ describe('SettingsService', () => {
     const snapshot = await service.update({
       noteColor: '#E0F2FE',
       alwaysOnTop: false,
+      showOnFullScreen: true,
       edgeAutoHideEnabled: true,
     });
     expect(snapshot).toEqual({
       noteColor: '#E0F2FE',
       noteOpacity: 1,
       alwaysOnTop: false,
+      showOnFullScreen: false,
       edgeAutoHideEnabled: true,
       completedExpanded: false,
       addedDateDisplay: 'hover',
@@ -53,6 +55,7 @@ describe('SettingsService', () => {
     expect(config.commit).toHaveBeenLastCalledWith({
       note_color: '#E0F2FE',
       always_on_top: false,
+      show_on_fullscreen: false,
       edge_auto_hide: true,
     });
   });
