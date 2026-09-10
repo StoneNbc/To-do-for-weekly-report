@@ -54,6 +54,26 @@ export class OpenAICompatibleAgent implements ReportAgent {
     return Boolean(this.#settings.baseUrl && this.#settings.model && (this.#apiKey || keyOptional));
   }
 
+  previewReport(
+    tasks: WeeklyTask[],
+    context: ReportContext,
+    options?: ReportGenerationOptions,
+  ): string {
+    return this.messages(tasks, context, options)
+      .map((message) => `${message.role}:\n${message.content}`)
+      .join('\n\n');
+  }
+
+  private messages(tasks: WeeklyTask[], context: ReportContext, options?: ReportGenerationOptions) {
+    return buildReportPrompt(tasks, context, {
+      recordTemplate: this.#recordTemplate,
+      remoteTemplate: this.#remoteTemplate,
+      prompt: this.#prompt,
+      pendingTasks: options?.pendingTasks,
+      groupBy: options?.groupBy,
+    });
+  }
+
   async generateReport(
     tasks: WeeklyTask[],
     context: ReportContext,
@@ -65,16 +85,11 @@ export class OpenAICompatibleAgent implements ReportAgent {
     const content = await this.#client.complete(
       this.#settings,
       this.#apiKey,
-      buildReportPrompt(tasks, context, {
-        recordTemplate: this.#recordTemplate,
-        remoteTemplate: this.#remoteTemplate,
-        prompt: this.#prompt,
-        pendingTasks: options?.pendingTasks,
-      }),
+      this.messages(tasks, context, options),
       options?.signal,
     );
     // 模板变量残留意味着模型没有产出可直接使用的完整周报，不能静默进入保存流程。
-    if (/\{\{(?:iso_year|iso_week|week_start|week_end|tasks)\}\}/.test(content)) {
+    if (/\{\{(?:iso_year|iso_week|week_start|week_end|tasks|project_records)\}\}/.test(content)) {
       throw new LlmError('REMOTE_RESPONSE_INVALID', '远程服务返回的周报仍包含未替换模板变量');
     }
     return content;

@@ -1,4 +1,5 @@
 import { compareLocalDates, getLocalDate } from '../../shared/dateUtils';
+import { assertProjectWritable } from '../parsers/projectField';
 import type { TodayTaskView } from '../../shared/domain';
 import { InvalidTodayFileError, TodayRepository } from '../repositories/todayRepository';
 import { WeekRepository, type ArchivedTaskInput } from '../repositories/weekRepository';
@@ -79,6 +80,7 @@ export class ArchiveService {
   private async reconcileUnlocked(): Promise<ArchiveResult> {
     const localToday = getLocalDate(this.clock.now());
     const read = await this.todayRepository.initialize(localToday);
+    assertProjectWritable(read.document);
     const sourceDate = read.snapshot.fileDate;
     if (!sourceDate) {
       // initialize 只创建缺失文件；格式损坏时绝不覆盖用户原文。
@@ -129,7 +131,11 @@ export class ArchiveService {
 export type ArchiveClock = Clock;
 
 const toArchivedTask = (task: TodayTaskView): ArchivedTaskInput => {
-  const archived: ArchivedTaskInput = { content: task.content, details: task.details };
+  const archived: ArchivedTaskInput = {
+    content: task.content,
+    details: task.details,
+    ...(task.projectName != null ? { projectName: task.projectName } : {}),
+  };
   if (task.addedDate !== undefined) archived.addedDate = task.addedDate;
   if (task.completedAt !== undefined) archived.completedAt = task.completedAt;
   return archived;

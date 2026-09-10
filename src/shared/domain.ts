@@ -1,3 +1,4 @@
+import type { ProjectFilter, PendingReportTask } from './projects';
 /**
  * Main、Preload 与 Renderer 共同使用的领域契约。
  *
@@ -26,11 +27,13 @@ export interface ParseWarning {
     | 'ORPHAN_TASK'
     | 'INVALID_TIME'
     | 'INVALID_ADDED_DATE'
-    | 'DUPLICATE_HEADER';
+    | 'DUPLICATE_HEADER'
+    | 'INVALID_PROJECT';
   reason: string;
 }
 
 export interface TodayTaskView {
+  projectName?: string | null;
   locator: TaskLocator;
   content: string;
   /** 普通多行说明；不是子任务，不参与完成统计。 */
@@ -41,6 +44,7 @@ export interface TodayTaskView {
 }
 
 export interface HistoricalTaskView {
+  projectName?: string | null;
   locator: TaskLocator;
   date: IsoDate;
   content: string;
@@ -75,6 +79,7 @@ export interface HistoryViewSnapshot {
 }
 
 export interface WeeklyTask {
+  projectName?: string | null;
   date: IsoDate;
   content: string;
   time?: LocalTime;
@@ -121,12 +126,19 @@ export interface LlmConnectionSettings {
 export interface ReportGenerationOptions {
   signal?: AbortSignal | undefined;
   /** 作为远程周报“下周计划”的候选来源；本地模板 Agent 忽略此字段。 */
-  pendingTasks?: string[] | undefined;
+  pendingTasks?: Array<PendingReportTask | string> | undefined;
+  groupBy?: 'date' | 'project' | undefined;
 }
 
 /** ReportAgent 的稳定扩展点；具体 Agent 不应负责文件选择或磁盘写入。 */
 export interface ReportAgent {
   readonly name: string;
+  readonly configurationKey?: string;
+  previewReport?(
+    tasks: WeeklyTask[],
+    context: ReportContext,
+    options?: ReportGenerationOptions,
+  ): string;
   isAvailable(): Promise<boolean>;
   generateReport(
     tasks: WeeklyTask[],
@@ -191,6 +203,9 @@ export interface NoteInteractionState {
 }
 
 export interface AppConfig {
+  selected_project: ProjectFilter;
+  remote_consent_origin: string | null;
+  remote_consent_version: number;
   schema_version: 2;
   cleanup_time: '00:00';
   agent: 'template' | 'openai-compatible';
@@ -214,6 +229,7 @@ export interface AppConfig {
 
 /** Renderer 只读取可公开设置，不暴露完整 AppConfig 或内部路径字段。 */
 export interface SettingsSnapshot {
+  selectedProject?: ProjectFilter | undefined;
   noteColor: string;
   noteOpacity: number;
   alwaysOnTop: boolean;
@@ -226,6 +242,7 @@ export interface SettingsSnapshot {
 }
 
 export interface SettingsPatch {
+  selectedProject?: ProjectFilter | undefined;
   noteColor?: string | undefined;
   noteOpacity?: number | undefined;
   alwaysOnTop?: boolean | undefined;
@@ -248,7 +265,7 @@ export interface NoteAppearance {
 
 /** Main 广播给所有窗口的失效通知，窗口收到后自行拉取最新快照。 */
 export interface DataChangedEvent {
-  scope: 'today' | 'week' | 'config';
+  scope: 'today' | 'week' | 'config' | 'projects';
   isoYear?: number;
   isoWeek?: number;
   reason: 'external-edit' | 'app-write' | 'archive' | 'history-edit';

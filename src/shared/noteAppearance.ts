@@ -62,9 +62,9 @@ export const getNoteTheme = (color: string): NoteTheme => {
         faint: '#78716C',
         surface: 'rgba(255, 255, 255, 0.35)',
         surfaceStrong: 'rgba(255, 255, 255, 0.82)',
-        border: 'rgba(120, 53, 15, 0.16)',
-        accent: '#92400E',
-        focus: '#D97706',
+        border: 'rgba(60, 60, 67, 0.12)',
+        accent: '#007AFF',
+        focus: '#007AFF',
       }
     : {
         foreground: '#FAFAF9',
@@ -72,8 +72,8 @@ export const getNoteTheme = (color: string): NoteTheme => {
         faint: '#D6D3D1',
         surface: 'rgba(255, 255, 255, 0.14)',
         surfaceStrong: 'rgba(28, 25, 23, 0.82)',
-        border: 'rgba(255, 255, 255, 0.28)',
-        accent: '#FDE68A',
-        focus: '#FCD34D',
+        border: 'rgba(255, 255, 255, 0.16)',
+        accent: '#64B5FF',
+        focus: '#64B5FF',
       };
 };

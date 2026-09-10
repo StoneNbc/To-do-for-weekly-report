@@ -13,7 +13,14 @@ import {
 import { isValidLocalTime } from '../../shared/validation';
 import { DEFAULT_REPORT_TEMPLATE } from '../../shared/constants';
 
-const SUPPORTED_VARIABLES = new Set(['iso_year', 'iso_week', 'week_start', 'week_end', 'tasks']);
+const SUPPORTED_VARIABLES = new Set([
+  'iso_year',
+  'iso_week',
+  'week_start',
+  'week_end',
+  'tasks',
+  'project_records',
+]);
 const TEMPLATE_VARIABLE = /\{\{([a-z_]+)\}\}/g;
 export const MAX_REPORT_TEMPLATE_LENGTH = 20_000;
 export const MAX_REPORT_PROMPT_LENGTH = 20_000;
@@ -23,16 +30,19 @@ export const renderTemplateReport = (
   tasks: readonly WeeklyTask[],
   context: ReportContext,
   template = DEFAULT_REPORT_TEMPLATE,
+  groupBy: 'date' | 'project' = 'date',
 ): string => {
   validateContext(context);
   validateReportTemplate(template);
-  const taskText = renderTaskList(tasks, context);
+  const taskText =
+    groupBy === 'project' ? renderProjectRecords(tasks, context) : renderTaskList(tasks, context);
   const values: Record<string, string> = {
     iso_year: String(context.isoYear),
     iso_week: String(context.isoWeek),
     week_start: formatDisplayDate(context.weekStart),
     week_end: formatDisplayDate(context.weekEnd),
     tasks: taskText,
+    project_records: renderProjectRecords(tasks, context),
   };
 
   // 单次替换保证任务正文里的 {{...}} 只被当作普通文本，不能触发二次解析。
@@ -45,7 +55,8 @@ export const validateReportTemplate = (template: string): void => {
   if (template.length > MAX_REPORT_TEMPLATE_LENGTH) {
     throw new RangeError(`周报模板不能超过 ${MAX_REPORT_TEMPLATE_LENGTH} 个字符`);
   }
-  if (!template.includes('{{tasks}}')) throw new RangeError('周报模板必须包含 {{tasks}}');
+  if (!template.includes('{{tasks}}') && !template.includes('{{project_records}}'))
+    throw new RangeError('周报模板必须包含 {{tasks}} 或 {{project_records}}');
 
   for (const match of template.matchAll(TEMPLATE_VARIABLE)) {
     const name = match[1];
@@ -110,6 +121,7 @@ const groupTasks = (tasks: readonly WeeklyTask[], context: ReportContext): TaskG
     // 复制公开任务对象，调用方不会观察到内部排序或后续修改。
     const copied: WeeklyTask = { date: task.date, content: task.content };
     if (task.time !== undefined) copied.time = task.time;
+    if (task.projectName != null) copied.projectName = task.projectName;
     group.tasks.push(copied);
   }
   return groups;
@@ -146,3 +158,23 @@ const validateTask = (task: WeeklyTask, context: ReportContext): void => {
 };
 
 const formatDisplayDate = (date: string): string => date.replaceAll('-', '.');
+
+/** Project groups are derived from the task fields, never the project directory. */
+export const renderProjectRecords = (
+  tasks: readonly WeeklyTask[],
+  context: ReportContext,
+): string => {
+  const sorted = groupTasks(tasks, context).flatMap((group) => group.tasks);
+  if (!sorted.length) return '（本周暂无已记录的完成事项）';
+  const names = [...new Set(sorted.map((task) => task.projectName ?? ''))];
+  return names
+    .map((name) =>
+      [
+        `项目：${name || '未分类'}`,
+        ...sorted
+          .filter((task) => (task.projectName ?? '') === name)
+          .map((task) => `- ${task.date}：${task.content}${task.time ? ` @${task.time}` : ''}`),
+      ].join('\n'),
+    )
+    .join('\n\n');
+};

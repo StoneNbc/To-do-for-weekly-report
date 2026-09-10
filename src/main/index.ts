@@ -1,3 +1,7 @@
+import type { ReportSettingsSnapshot } from '../shared/domain';
+import { BusinessCoordinator } from './services/businessCoordinator';
+import { ProjectService } from './services/projectService';
+import { registerProjectHandlers } from './ipc/projectHandlers';
 import {
   app,
   dialog,
@@ -9,6 +13,7 @@ import {
   shell,
 } from 'electron';
 import { mkdir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { AppLifecycle } from './appLifecycle';
 import { IPC } from './ipc/channels';
@@ -44,6 +49,20 @@ import { DEFAULT_REMOTE_REPORT_TEMPLATE, DEFAULT_REPORT_PROMPT } from '../shared
 import { validateReportPrompt } from './agents/reportTemplate';
 import { noteInteractionStateSchema } from './ipc/schemas';
 
+const reportSettingsKey = (settings: ReportSettingsSnapshot, apiKey: string | null): string =>
+  createHash('sha256')
+    .update(
+      JSON.stringify({
+        mode: settings.mode,
+        recordTemplate: settings.recordTemplate,
+        remoteTemplate: settings.remoteTemplate,
+        prompt: settings.prompt,
+        llm: settings.llm,
+        apiKey,
+      }),
+    )
+    .digest('hex');
+
 // Main Process 组合根：这里只负责实例化和接线，文本规则与业务流程留在各自 Service。
 const dataPaths = resolveDataPaths({ app });
 const logger = new LocalFileLogger({
@@ -59,13 +78,15 @@ let fileWatcher: FileWatcherService | null = null;
 let scheduler: ArchiveScheduler | null = null;
 let reportService: ReportService | null = null;
 // Today 与 Week Repository 共享 Store，确保同一路径写入都经过同一串行队列。
-const textFileStore = new TextFileStore();
+const coordinator = new BusinessCoordinator();
+const textFileStore = new TextFileStore(() => coordinator.assertWritable());
 const lifecycle = new AppLifecycle({
   app,
   logger,
   showFloatingNote: () => windowManager?.showFloatingNote(),
   flushPendingWrites: async () => {
     windowManager?.saveCurrentBounds();
+    await coordinator.drain();
     await Promise.all([config.flush(), textFileStore.drain(), reportService?.drain()]);
   },
   stopBackgroundServices: async () => {
@@ -92,16 +113,59 @@ if (lifecycle.acquireSingleInstance()) {
         process.env.VITE_DEV_SERVER_URL,
       );
 
-      const todayRepository = new TodayRepository(dataPaths.todayFile, textFileStore);
+      const todayRepository = coordinator.wrap(
+        new TodayRepository(dataPaths.todayFile, textFileStore),
+        ['initialize', 'read', 'addTask', 'updateTask', 'deleteTask', 'rollOver', 'moveMany'],
+        ['read', 'initialize'],
+      );
       const weekRepository = new WeekRepository(dataPaths.weeksDirectory, textFileStore);
-      const archiveService = new ArchiveService(todayRepository, weekRepository);
-      const taskService = new TaskService(todayRepository, archiveService);
-      const weeklyService = new WeeklyService(
-        weekRepository,
-        todayRepository,
-        undefined,
+      const archiveService = coordinator.wrap(new ArchiveService(todayRepository, weekRepository), [
+        'reconcileToToday',
+      ]);
+      const projects = new ProjectService(
+        dataPaths.root,
+        textFileStore,
+        coordinator,
         archiveService,
-        logger,
+      );
+      await projects.renames.recover();
+      const taskService = coordinator.wrap(
+        new TaskService(todayRepository, archiveService, undefined, (name) =>
+          projects.assertTarget(name),
+        ),
+        [
+          'getToday',
+          'addTodayTask',
+          'toggleTodayTask',
+          'editTodayTask',
+          'deleteTodayTask',
+          'moveMany',
+        ],
+        ['getToday'],
+      );
+      const weeklyService = coordinator.wrap(
+        new WeeklyService(
+          weekRepository,
+          todayRepository,
+          undefined,
+          archiveService,
+          logger,
+          (name) => projects.assertTarget(name),
+        ),
+        [
+          'getDay',
+          'getHistoryView',
+          'addPendingFromHistory',
+          'editPendingFromHistory',
+          'deletePendingFromHistory',
+          'completePendingOnDate',
+          'reopenHistoricalTask',
+          'addHistoricalTask',
+          'editHistoricalTask',
+          'deleteHistoricalTask',
+          'getWeek',
+        ],
+        ['getDay', 'getHistoryView', 'getWeek'],
       );
       const recordTemplates = new ReportTemplateService(dataPaths.reportTemplateFile);
       const remoteTemplates = new ReportTemplateService(
@@ -165,30 +229,47 @@ if (lifecycle.acquireSingleInstance()) {
         broadcast: (event) => windowManager?.broadcastDataChanged(event),
       });
       scheduler = new ArchiveScheduler({ archive: archiveService, powerMonitor, logger });
+      const readReportConfiguration = async () => {
+        const settings = await reportSettings.get();
+        const credential =
+          settings.mode === 'remote-llm'
+            ? await credentials.get(
+                getLlmCredentialOrigin(settings.llm.baseUrl, settings.llm.allowInsecureHttp),
+              )
+            : null;
+        // The fingerprint stays in Main memory and detects key changes even when masks match.
+        return {
+          settings,
+          credential,
+          configurationKey: reportSettingsKey(settings, credential?.apiKey ?? null),
+        };
+      };
       reportService = new ReportService({
+        coordinator,
+        reconcile: () => archiveService.reconcileToToday('before-mutation'),
+        settingsKey: async () => (await readReportConfiguration()).configurationKey,
+        destinationDescription: () =>
+          `服务：${config.get().llm.baseUrl}\n模型：${config.get().llm.model}`,
         weeklyService,
         pendingTaskSource: taskService,
         agentProvider: {
           getAgent: async () => {
-            const current = config.get();
-            const recordTemplate = await recordTemplates.read(current.template_path);
-            if (current.agent === 'template') return new TemplateAgent(recordTemplate);
-            const [remoteTemplate, prompt] = await Promise.all([
-              remoteTemplates.read(current.remote_template_path),
-              prompts.read(current.report_prompt_path),
-            ]);
-            const origin = getLlmCredentialOrigin(
-              current.llm.baseUrl,
-              current.llm.allowInsecureHttp,
+            const { settings, credential, configurationKey } = await readReportConfiguration();
+            if (settings.mode === 'local-template')
+              return Object.assign(new TemplateAgent(settings.recordTemplate), {
+                configurationKey,
+              });
+
+            return Object.assign(
+              new OpenAICompatibleAgent({
+                settings: settings.llm,
+                recordTemplate: settings.recordTemplate,
+                remoteTemplate: settings.remoteTemplate,
+                prompt: settings.prompt,
+                apiKey: credential?.apiKey ?? null,
+              }),
+              { configurationKey },
             );
-            const credential = await credentials.get(origin);
-            return new OpenAICompatibleAgent({
-              settings: current.llm,
-              recordTemplate,
-              remoteTemplate,
-              prompt,
-              apiKey: credential?.apiKey ?? null,
-            });
           },
         },
         dialog: {
@@ -198,7 +279,7 @@ if (lifecycle.acquireSingleInstance()) {
         shell,
         logger,
         getDialogWindow: () => windowManager?.getActiveWindow(),
-        isRemoteConsentConfirmed: () => config.get().remote_consent_confirmed,
+        isRemoteConsentConfirmed: () => reportSettings.isRemoteConsentConfirmed(),
       });
 
       const commands: DesktopCommands = {
@@ -247,6 +328,20 @@ if (lifecycle.acquireSingleInstance()) {
         onWeekAppWrite: (isoYear, isoWeek, revision) =>
           fileWatcher?.markAppWrite(getCurrentWeekPath(dataPaths, isoYear, isoWeek), revision),
       });
+      registerProjectHandlers({
+        ipcMain,
+        projects,
+        task: taskService,
+        onCreated: (name, senderId) => windowManager?.notifyProjectCreated(name, senderId),
+        logger,
+        broadcast: () =>
+          windowManager?.broadcastDataChanged({ scope: 'projects', reason: 'app-write' }),
+        openRecovery: async () => {
+          await mkdir(join(dataPaths.root, 'recovery'), { recursive: true });
+          const error = await shell.openPath(join(dataPaths.root, 'recovery'));
+          if (error) throw new Error(error);
+        },
+      });
       registerReportHandlers({ ipcMain, reportService, logger });
       registerSettingsHandlers({ ipcMain, settings: settingsService, shellActions, logger });
       registerReportSettingsHandlers({ ipcMain, settings: reportSettings, logger });
@@ -286,6 +381,10 @@ const registerPlatformHandlers = (
   ipcMain.handle(IPC.windowSetNoteInteractionState, (_event, input: unknown) => {
     windows.setNoteInteractionState(noteInteractionStateSchema.parse(input));
   });
+  ipcMain.handle(IPC.windowOpenProjectCreate, async () => {
+    await windows.openProjectCreate();
+  });
+  ipcMain.handle(IPC.windowCloseProjectCreate, () => windows.closeProjectCreate());
   ipcMain.handle(IPC.windowOpenSettings, async () => {
     await windows.openSettings();
   });

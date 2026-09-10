@@ -1,3 +1,4 @@
+import type { MoveTasksInput } from '../../shared/projects';
 import type { TaskLocator, TodaySnapshot } from '../../shared/domain';
 import { getLocalDate } from '../../shared/dateUtils';
 import { TaskLineNotFoundError, TodayRepository } from '../repositories/todayRepository';
@@ -14,6 +15,8 @@ export class TaskService {
     private readonly todayRepository: TodayRepository,
     private readonly archiveService: ArchiveService,
     private readonly clock: Clock = new SystemClock(),
+    private readonly assertProject: (name: string | null | undefined) => Promise<void> = async () =>
+      undefined,
   ) {}
 
   async getToday(): Promise<TodaySnapshot> {
@@ -21,11 +24,19 @@ export class TaskService {
     return (await this.todayRepository.initialize(localDate)).snapshot;
   }
 
-  async addTodayTask(content: string): Promise<TodaySnapshot> {
+  async addTodayTask(content: string, projectName: string | null = null): Promise<TodaySnapshot> {
+    await this.assertProject(projectName);
     // 每次写入前补偿跨日，防止新任务被写入昨天的 today.txt。
     await this.archiveService.reconcileToToday('before-mutation');
-    return (await this.todayRepository.addTask(content, null, getLocalDate(this.clock.now())))
-      .snapshot;
+    return (
+      await this.todayRepository.addTask(
+        content,
+        null,
+        getLocalDate(this.clock.now()),
+        '',
+        projectName,
+      )
+    ).snapshot;
   }
 
   async toggleTodayTask(locator: TaskLocator): Promise<TodaySnapshot> {
@@ -39,6 +50,7 @@ export class TaskService {
       (candidate) => candidate.locator.line === locator.line,
     );
     if (!task) throw new TaskLineNotFoundError(locator.line);
+    if (task.completed) await this.assertProject(task.projectName);
     const completed = !task.completed;
     return (
       await this.todayRepository.updateTask(locator, {
@@ -54,14 +66,28 @@ export class TaskService {
     content: string,
     details: string,
     completedAt?: string,
+    projectName?: string | null,
   ): Promise<TodaySnapshot> {
     await this.archiveService.reconcileToToday('before-mutation');
-    const changes: { content: string; details: string; completedAt?: string } = {
+    if (projectName !== undefined) await this.assertProject(projectName);
+    const changes: {
+      content: string;
+      details: string;
+      completedAt?: string;
+      projectName?: string | null;
+    } = {
       content,
       details,
     };
     if (completedAt !== undefined) changes.completedAt = completedAt;
+    if (projectName !== undefined) changes.projectName = projectName;
     return (await this.todayRepository.updateTask(locator, changes)).snapshot;
+  }
+
+  async moveMany(input: MoveTasksInput): Promise<TodaySnapshot> {
+    await this.assertProject(input.projectName);
+    await this.archiveService.reconcileToToday('before-mutation');
+    return this.todayRepository.moveMany(input);
   }
 
   async deleteTodayTask(locator: TaskLocator): Promise<TodaySnapshot> {

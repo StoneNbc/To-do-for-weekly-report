@@ -1,3 +1,4 @@
+import { assertProjectWritable } from '../parsers/projectField';
 import type {
   DayRecordSnapshot,
   HistoryViewSnapshot,
@@ -21,6 +22,7 @@ import { ArchiveService, SystemClock, type Clock } from './archiveService';
 import type { AppLogger } from '../logging/logger';
 
 export interface AddHistoricalTaskInput {
+  projectName?: string | null | undefined;
   date: string;
   content: string;
   details?: string | undefined;
@@ -37,6 +39,7 @@ export interface DeleteHistoricalTaskInput {
 }
 
 export interface AddPendingFromHistoryInput {
+  projectName?: string | null | undefined;
   date: string;
   content: string;
 }
@@ -47,6 +50,7 @@ export interface CompletePendingOnDateInput {
 }
 
 export interface EditPendingFromHistoryInput extends CompletePendingOnDateInput {
+  projectName?: string | null | undefined;
   content: string;
   details?: string | undefined;
 }
@@ -98,6 +102,8 @@ export class WeeklyService {
     private readonly clock: Clock = new SystemClock(),
     private readonly archiveService?: Pick<ArchiveService, 'reconcileToToday'>,
     private readonly logger?: Pick<AppLogger, 'error'>,
+    private readonly assertProject: (name: string | null | undefined) => Promise<void> = async () =>
+      undefined,
   ) {}
 
   async getDay(date: string): Promise<DayRecordSnapshot> {
@@ -127,17 +133,26 @@ export class WeeklyService {
   }
 
   async addPendingFromHistory(input: AddPendingFromHistoryInput): Promise<HistoryViewSnapshot> {
+    if (input.projectName !== undefined) await this.assertProject(input.projectName);
     this.assertHistoricalDate(input.date);
     await this.archiveService?.reconcileToToday('before-mutation');
-    await this.todayRepository.addTask(input.content, null, input.date);
+    await this.todayRepository.addTask(
+      input.content,
+      null,
+      input.date,
+      '',
+      input.projectName ?? null,
+    );
     return this.getHistoryView(input.date);
   }
 
   async editPendingFromHistory(input: EditPendingFromHistoryInput): Promise<HistoryViewSnapshot> {
+    if (input.projectName !== undefined) await this.assertProject(input.projectName);
     this.assertHistoricalDate(input.date);
     await this.archiveService?.reconcileToToday('before-mutation');
     await this.todayRepository.updateTask(input.locator, {
       content: input.content,
+      ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
       ...(input.details !== undefined ? { details: input.details } : {}),
     });
     return this.getHistoryView(input.date);
@@ -159,9 +174,16 @@ export class WeeklyService {
   }
 
   async addHistoricalTask(input: AddHistoricalTaskInput): Promise<DayRecordSnapshot> {
+    if (input.projectName !== undefined) await this.assertProject(input.projectName);
     this.assertHistoricalDate(input.date);
-    const task: { content: string; details?: string; completedAt?: string } = {
+    const task: {
+      content: string;
+      details?: string;
+      completedAt?: string;
+      projectName?: string | null;
+    } = {
       content: input.content,
+      ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
     };
     if (input.details !== undefined) task.details = input.details;
     if (input.completedAt !== undefined) task.completedAt = input.completedAt;
@@ -169,9 +191,16 @@ export class WeeklyService {
   }
 
   async editHistoricalTask(input: EditHistoricalTaskInput): Promise<HistoryViewSnapshot> {
+    if (input.projectName !== undefined) await this.assertProject(input.projectName);
     this.assertHistoricalDate(input.date);
-    const task: { content: string; details?: string; completedAt?: string } = {
+    const task: {
+      content: string;
+      details?: string;
+      completedAt?: string;
+      projectName?: string | null;
+    } = {
       content: input.content,
+      ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
     };
     if (input.details !== undefined) task.details = input.details;
     if (input.completedAt !== undefined) task.completedAt = input.completedAt;
@@ -193,6 +222,7 @@ export class WeeklyService {
     if (currentWeek.isoYear !== isoYear || currentWeek.isoWeek !== isoWeek) return archived;
 
     const today = await this.todayRepository.initialize(localToday);
+    assertProjectWritable(today.document);
     if (today.snapshot.fileDate !== localToday) return archived;
     const completed = today.snapshot.tasks.filter((task) => task.completed);
     if (completed.length === 0) return archived;
@@ -206,7 +236,11 @@ export class WeeklyService {
       groups.sort((a, b) => compareLocalDates(a.date, b.date));
     }
     for (const task of completed) {
-      const weeklyTask: WeeklyTask = { date: localToday, content: task.content };
+      const weeklyTask: WeeklyTask = {
+        date: localToday,
+        content: task.content,
+        ...(task.projectName != null ? { projectName: task.projectName } : {}),
+      };
       if (task.completedAt !== undefined) weeklyTask.time = task.completedAt;
       // today 中的完成项尚未归档，因此不会与周文件做正文去重。
       todayGroup.tasks.push(weeklyTask);
@@ -256,6 +290,7 @@ export class WeeklyService {
 
     const inserted = await this.weekRepository.insertHistoricalTask(input.date, {
       content: task.content,
+      ...(task.projectName != null ? { projectName: task.projectName } : {}),
       details: task.details,
       ...(task.addedDate !== undefined ? { addedDate: task.addedDate } : {}),
     });
@@ -291,11 +326,13 @@ export class WeeklyService {
     );
     if (!task) throw new TaskLineNotFoundError(input.locator.line);
 
+    await this.assertProject(task.projectName);
     const inserted = await this.todayRepository.addTask(
       task.content,
       null,
       task.addedDate,
       task.details,
+      task.projectName ?? null,
     );
     try {
       await this.weekRepository.deleteHistoricalTask(input.date, input.locator);

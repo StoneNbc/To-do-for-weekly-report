@@ -85,6 +85,7 @@ export class WindowManager {
   readonly #options: WindowManagerOptions;
   #noteWindow: BrowserWindow | null = null;
   #weeklyWindow: BrowserWindow | null = null;
+  #projectCreateWindow: BrowserWindow | null = null;
   #settingsWindow: BrowserWindow | null = null;
   #menuFactory: MenuFactory | null = null;
   #settingsCloseHandler: (() => void) | null = null;
@@ -253,6 +254,62 @@ export class WindowManager {
     if (existing) this.#sendPendingReportGeneration(window);
   }
 
+  async openProjectCreate(): Promise<BrowserWindow> {
+    this.#revealDockedNote('show');
+    this.#cancelAutoHide();
+    const existing = this.#projectCreateWindow;
+    if (existing && !existing.isDestroyed()) {
+      if (existing.isMinimized()) existing.restore();
+      existing.show();
+      existing.focus();
+      return existing;
+    }
+    const window = new BrowserWindow({
+      width: 440,
+      height: 340,
+      minWidth: 360,
+      minHeight: 300,
+      title: '新建项目',
+      show: false,
+      ...(this.#noteWindow ? { parent: this.#noteWindow, modal: true } : {}),
+      ...(this.#options.appIconPath ? { icon: this.#options.appIconPath } : {}),
+      webPreferences: {
+        preload: this.#options.preloadPath,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    this.#projectCreateWindow = window;
+    window.on('ready-to-show', () => {
+      if (!window.isDestroyed()) {
+        window.show();
+        window.focus();
+      }
+    });
+    window.on('closed', () => {
+      if (this.#projectCreateWindow === window) this.#projectCreateWindow = null;
+      if (!this.#options.isQuitting()) this.showFloatingNote();
+    });
+    try {
+      await this.#loadView(window, 'project-create');
+    } catch (error) {
+      window.close();
+      throw error;
+    }
+    return window;
+  }
+
+  closeProjectCreate(): void {
+    this.#projectCreateWindow?.close();
+  }
+
+  notifyProjectCreated(name: string, senderId: number): void {
+    if (this.#projectCreateWindow?.webContents.id !== senderId) return;
+    const note = this.#noteWindow;
+    if (note && !note.isDestroyed()) note.webContents.send(IPC.projectCreated, name);
+  }
+
   async openSettings(): Promise<BrowserWindow> {
     if (this.#settingsWindow && !this.#settingsWindow.isDestroyed()) {
       if (this.#settingsWindow.isMinimized()) this.#settingsWindow.restore();
@@ -394,7 +451,7 @@ export class WindowManager {
 
   broadcastDataChanged(event: DataChangedEvent): void {
     // 事件只声明哪些数据失效，不携带业务正文；各窗口自行重新拉取权威快照。
-    for (const window of [this.#noteWindow, this.#weeklyWindow]) {
+    for (const window of [this.#noteWindow, this.#weeklyWindow, this.#projectCreateWindow]) {
       if (window && !window.isDestroyed()) window.webContents.send(IPC.dataChanged, event);
     }
   }
@@ -454,12 +511,16 @@ export class WindowManager {
     this.saveCurrentBounds();
     this.#clearDockTimers();
     this.#unregisterDisplayListeners();
+    this.#projectCreateWindow?.close();
     this.#weeklyWindow?.close();
     this.#settingsWindow?.close();
     this.#noteWindow?.close();
   }
 
-  async #loadView(window: BrowserWindow, view: 'note' | 'weekly' | 'settings'): Promise<void> {
+  async #loadView(
+    window: BrowserWindow,
+    view: 'note' | 'weekly' | 'settings' | 'project-create',
+  ): Promise<void> {
     try {
       // 禁止页面自行打开新窗口或导航到非应用 origin，缩小恶意内容的攻击面。
       window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -588,6 +649,7 @@ export class WindowManager {
 
   #scheduleAutoHide(): void {
     if (
+      this.#projectCreateWindow !== null ||
       this.#dockState.phase !== 'docked-visible' ||
       this.#dockState.pointerInside ||
       this.#dockState.interactionBlocked ||
@@ -599,6 +661,7 @@ export class WindowManager {
     this.#autoHideTimer = setTimeout(() => {
       this.#autoHideTimer = null;
       if (
+        this.#projectCreateWindow === null &&
         this.#dockState.phase === 'docked-visible' &&
         !this.#dockState.pointerInside &&
         !this.#dockState.interactionBlocked &&

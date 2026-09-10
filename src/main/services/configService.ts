@@ -1,3 +1,4 @@
+import { projectFilterSchema } from '../ipc/projectSchemas';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
@@ -28,6 +29,9 @@ export const llmConnectionSettingsSchema = z.object({
 });
 
 const knownConfigSchema = z.object({
+  selected_project: projectFilterSchema,
+  remote_consent_origin: z.string().nullable(),
+  remote_consent_version: z.number().int().nonnegative(),
   schema_version: z.literal(2),
   cleanup_time: z.literal('00:00'),
   agent: z.enum(['template', 'openai-compatible']),
@@ -50,6 +54,9 @@ const knownConfigSchema = z.object({
 export type ConfigPatch = Partial<
   Pick<
     AppConfig,
+    | 'selected_project'
+    | 'remote_consent_origin'
+    | 'remote_consent_version'
     | 'agent'
     | 'template_path'
     | 'remote_template_path'
@@ -275,6 +282,16 @@ export class ConfigService {
 
 const parsePatch = (patch: ConfigPatch): ConfigPatch => {
   const parsedPatch: ConfigPatch = {};
+  if ('selected_project' in patch)
+    parsedPatch.selected_project = projectFilterSchema.parse(patch.selected_project);
+  if ('remote_consent_origin' in patch)
+    parsedPatch.remote_consent_origin = knownConfigSchema.shape.remote_consent_origin.parse(
+      patch.remote_consent_origin,
+    );
+  if ('remote_consent_version' in patch)
+    parsedPatch.remote_consent_version = knownConfigSchema.shape.remote_consent_version.parse(
+      patch.remote_consent_version,
+    );
   if ('agent' in patch) parsedPatch.agent = knownConfigSchema.shape.agent.parse(patch.agent);
   if ('template_path' in patch)
     parsedPatch.template_path = knownConfigSchema.shape.template_path.parse(patch.template_path);

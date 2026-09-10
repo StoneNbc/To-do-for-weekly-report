@@ -1,6 +1,8 @@
+import type { PendingReportTask } from '../../shared/projects';
 import type { ReportContext, WeeklyTask } from '../../shared/domain';
 import {
   renderTemplateReport,
+  renderProjectRecords,
   validateReportPrompt,
   validateReportTemplate,
 } from './reportTemplate';
@@ -21,17 +23,32 @@ export const buildReportPrompt = (
     recordTemplate: string;
     remoteTemplate: string;
     prompt: string;
-    pendingTasks?: readonly string[] | undefined;
+    pendingTasks?: readonly (PendingReportTask | string)[] | undefined;
+    groupBy?: 'date' | 'project' | undefined;
   },
 ): ChatMessage[] => {
   // 校验发生在任何网络调用之前，防止空提示词或未知模板变量进入远程请求。
   validateReportTemplate(options.recordTemplate);
   validateReportTemplate(options.remoteTemplate);
   validateReportPrompt(options.prompt);
-  const localRecord = renderTemplateReport(tasks, context, options.recordTemplate);
-  const completeTemplate = renderTemplateReport(tasks, context, options.remoteTemplate);
+  const localRecord = renderTemplateReport(tasks, context, options.recordTemplate, options.groupBy);
+  const projectFacts = tasks.some((task) => task.projectName)
+    ? renderProjectRecords(tasks, context)
+    : '';
+  const completeTemplate = renderTemplateReport(
+    tasks,
+    context,
+    options.remoteTemplate,
+    options.groupBy,
+  );
   const pendingTasks = options.pendingTasks?.length
-    ? options.pendingTasks.map((task) => `- ${task}`).join('\n')
+    ? options.pendingTasks
+        .map((task) =>
+          typeof task === 'string'
+            ? `- ${task}`
+            : `- [${task.projectName ?? '未分类'}] ${task.content}`,
+        )
+        .join('\n')
     : '（当前没有未完成待办）';
 
   return [
@@ -50,6 +67,11 @@ export const buildReportPrompt = (
         '',
         '【本地 TXT 工作记录】',
         localRecord,
+        ...(projectFacts &&
+        options.groupBy !== 'project' &&
+        !options.recordTemplate.includes('{{project_records}}')
+          ? ['', '【项目归属与完成事实】', projectFacts]
+          : []),
         '',
         '【当前未完成待办——仅作为下周计划候选】',
         pendingTasks,

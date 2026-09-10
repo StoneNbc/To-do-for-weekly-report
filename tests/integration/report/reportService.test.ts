@@ -65,6 +65,7 @@ const setup = async (options?: {
   agent?: ReportAgent;
   pendingSnapshot?: TodaySnapshot;
   remoteConsentConfirmed?: boolean;
+  settingsKey?: () => string;
 }) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sticky-report-'));
   roots.push(root);
@@ -81,6 +82,7 @@ const setup = async (options?: {
   const agent = options?.agent ?? templateAgent();
   const service = new ReportService({
     weeklyService,
+    ...(options?.settingsKey ? { settingsKey: async () => options.settingsKey!() } : {}),
     pendingTaskSource: { getToday: vi.fn(async () => options?.pendingSnapshot ?? pendingSnapshot) },
     agentProvider: { getAgent: () => agent },
     dialog,
@@ -163,7 +165,7 @@ describe('ReportService', () => {
     expect(shell.showItemInFolder).not.toHaveBeenCalled();
   });
 
-  it('远程生成只把当前未完成待办作为下周计划候选传给 Agent', async () => {
+  it('显式选择后，远程生成只把当前未完成待办作为下周计划候选传给 Agent', async () => {
     const agent: ReportAgent = {
       name: 'openai-compatible',
       isAvailable: vi.fn(async () => true),
@@ -171,7 +173,7 @@ describe('ReportService', () => {
     };
     const { service } = await setup({ agent, remoteConsentConfirmed: true });
 
-    await service.generateDraft(2026, 33);
+    await service.generateDraft(2026, 33, undefined, { includePendingCandidates: true });
 
     expect(agent.generateReport).toHaveBeenCalledWith(
       snapshot.groups[0]?.tasks,
@@ -181,7 +183,78 @@ describe('ReportService', () => {
         weekStart: '2026-08-10',
         weekEnd: '2026-08-16',
       },
-      { pendingTasks: ['延后到下周的待办'] },
+      { pendingTasks: [{ content: '延后到下周的待办', projectName: null }] },
     );
+  });
+  it('filters completed and opt-in pending sources together without exposing details', async () => {
+    const agent = {
+      ...templateAgent(),
+      name: 'openai-compatible',
+      previewReport: vi.fn(() => 'payload'),
+    };
+    const pending = structuredClone(pendingSnapshot);
+    pending.tasks[0]!.projectName = '项目甲';
+    const { service, weeklyService } = await setup({
+      agent,
+      pendingSnapshot: pending,
+      remoteConsentConfirmed: true,
+    });
+    weeklyService.getWeek.mockResolvedValue({
+      ...snapshot,
+      groups: [
+        {
+          ...snapshot.groups[0]!,
+          tasks: [
+            { date: '2026-08-12', content: '甲完成', projectName: '项目甲' },
+            { date: '2026-08-12', content: '乙完成', projectName: '项目乙' },
+          ],
+        },
+      ],
+    });
+    const options = {
+      projectFilter: { kind: 'names' as const, names: ['项目甲'] },
+      groupBy: 'project' as const,
+      includePendingCandidates: true,
+    };
+    const preview = await service.preview(2026, 33, options);
+    expect(preview).toMatchObject({ taskCount: 1, pendingCount: 1 });
+    expect(agent.generateReport).not.toHaveBeenCalled();
+    await service.generateDraft(2026, 33, undefined, { ...options, previewToken: preview.token });
+    expect(agent.generateReport).toHaveBeenCalledWith(
+      [{ date: '2026-08-12', content: '甲完成', projectName: '项目甲' }],
+      expect.anything(),
+      {
+        groupBy: 'project',
+        pendingTasks: [{ content: '延后到下周的待办', projectName: '项目甲' }],
+      },
+    );
+    expect(JSON.stringify(vi.mocked(agent.generateReport).mock.calls)).not.toContain(
+      '只保存在本地',
+    );
+    await expect(
+      service.generateDraft(2026, 33, undefined, { ...options, previewToken: preview.token }),
+    ).rejects.toMatchObject({ code: 'FILE_CHANGED' });
+  });
+
+  it('excludes pending candidates by default and rejects changed sources or settings before sending', async () => {
+    let key = 'settings-1';
+    const agent = { ...templateAgent(), name: 'openai-compatible' };
+    const { service, weeklyService } = await setup({
+      agent,
+      remoteConsentConfirmed: true,
+      settingsKey: () => key,
+    });
+    const preview = await service.preview(2026, 33);
+    expect(preview.pendingCount).toBe(0);
+    weeklyService.getWeek.mockResolvedValueOnce({ ...snapshot, groups: [] });
+    await expect(
+      service.generateDraft(2026, 33, undefined, { previewToken: preview.token }),
+    ).rejects.toMatchObject({ code: 'FILE_CHANGED' });
+    const next = await service.preview(2026, 33);
+    key = 'settings-2';
+    await expect(
+      service.generateDraft(2026, 33, undefined, { previewToken: next.token }),
+    ).rejects.toMatchObject({ code: 'FILE_CHANGED' });
+    expect(agent.generateReport).not.toHaveBeenCalled();
   });
 });

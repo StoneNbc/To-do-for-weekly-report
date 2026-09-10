@@ -1,3 +1,5 @@
+import { projectFilterSchema } from './projectSchemas';
+export { projectNameSchema, projectFilterSchema } from './projectSchemas';
 import { z } from 'zod';
 import {
   isValidNoteColor,
@@ -31,7 +33,14 @@ export const isoWeekInputSchema = z.object({
   isoWeek: z.number().int().min(1).max(53),
 });
 
-export const reportGenerationInputSchema = isoWeekInputSchema.extend({
+export const reportSourceInputSchema = isoWeekInputSchema.extend({
+  projectFilter: projectFilterSchema.optional(),
+  groupBy: z.enum(['date', 'project']).optional(),
+  includePendingCandidates: z.boolean().optional(),
+  previewToken: z.string().uuid().optional(),
+});
+
+export const reportGenerationInputSchema = reportSourceInputSchema.extend({
   requestId: z.string().uuid(),
 });
 
@@ -80,6 +89,7 @@ export const appearancePreviewSchema = z
 
 export const settingsPatchSchema = appearancePreviewSchema
   .safeExtend({
+    selectedProject: projectFilterSchema.optional(),
     alwaysOnTop: z.boolean().optional(),
     showOnFullScreen: z.boolean().optional(),
     edgeAutoHideEnabled: z.boolean().optional(),

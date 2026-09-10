@@ -1,3 +1,10 @@
+import {
+  PROJECT_FORMAT,
+  projectFormatWarnings,
+  parseProjectContent,
+  formatProjectContent,
+  type ProjectFormatNode,
+} from './projectField';
 import type { ParseWarning } from '../../shared/domain';
 import { isValidLocalDate } from '../../shared/dateUtils';
 import { isValidLocalTime } from '../../shared/validation';
@@ -26,6 +33,7 @@ export interface TodayTaskNode extends TodayNodeBase {
   kind: 'task';
   completed: boolean;
   content: string;
+  projectName?: string | null;
   addedDate?: string;
   completedAt?: string;
 }
@@ -45,9 +53,15 @@ export interface TodayUnknownNode extends TodayNodeBase {
 }
 
 export type TodayNode =
-  TodayHeaderNode | TodayTaskNode | TodayTaskDetailNode | TodayBlankNode | TodayUnknownNode;
+  | ProjectFormatNode
+  | TodayHeaderNode
+  | TodayTaskNode
+  | TodayTaskDetailNode
+  | TodayBlankNode
+  | TodayUnknownNode;
 
 export interface TodayDocument {
+  projectFormat: boolean;
   nodes: TodayNode[];
   fileDate: string | null;
   eol: LineEnding;
@@ -76,7 +90,8 @@ export const parseToday = (text: string, options: ParseTodayOptions = {}): Today
   const file = options.file ?? 'today.txt';
   const decoded = decodeText(text);
   const nodes: TodayNode[] = [];
-  const warnings: ParseWarning[] = [];
+  const warnings: ParseWarning[] = projectFormatWarnings(decoded.lines, file);
+  const projectFormat = decoded.lines[1] === PROJECT_FORMAT;
   let fileDate: string | null = null;
   let acceptsTaskDetail = false;
 
@@ -85,6 +100,11 @@ export const parseToday = (text: string, options: ParseTodayOptions = {}): Today
   }
 
   decoded.lines.forEach((raw, line) => {
+    if (raw.startsWith('!format:')) {
+      nodes.push({ kind: 'projectFormat', raw, line });
+      acceptsTaskDetail = false;
+      return;
+    }
     if (raw === '') {
       nodes.push({ kind: 'blank', raw, line });
       acceptsTaskDetail = false;
@@ -142,7 +162,23 @@ export const parseToday = (text: string, options: ParseTodayOptions = {}): Today
         warnings.push(warning(file, line, 'INVALID_ADDED_DATE', `无效的添加日期：${addedLike[1]}`));
       }
 
+      let projectName: string | null = null;
+      if (projectFormat) {
+        try {
+          const parsed = parseProjectContent(content);
+          content = parsed.content;
+          projectName = parsed.projectName;
+        } catch {
+          warnings.push({
+            file,
+            line,
+            code: 'INVALID_PROJECT',
+            reason: '项目字段无效，请检查名称与引号',
+          });
+        }
+      }
       const node: TodayTaskNode = { kind: 'task', raw, line, completed, content };
+      if (projectName !== null) node.projectName = projectName;
       if (addedDate !== undefined) node.addedDate = addedDate;
       if (completedAt !== undefined) node.completedAt = completedAt;
       nodes.push(node);
@@ -175,6 +211,7 @@ export const parseToday = (text: string, options: ParseTodayOptions = {}): Today
 
   return {
     nodes,
+    projectFormat,
     fileDate,
     eol: decoded.eol,
     endsWithEol: decoded.endsWithEol,
@@ -188,8 +225,10 @@ export const formatTodayTask = (
   completed: boolean,
   addedDate?: string,
   completedAt?: string,
+  projectName?: string | null,
+  projectFormat = false,
 ): string =>
-  `- [${completed ? 'x' : ' '}] ${content}${addedDate ? ` @添加:${addedDate}` : ''}${completedAt ? ` @${completedAt}` : ''}`;
+  `- [${completed ? 'x' : ' '}] ${formatProjectContent(content, projectName, projectFormat)}${addedDate ? ` @添加:${addedDate}` : ''}${completedAt ? ` @${completedAt}` : ''}`;
 
 export const createTodayTaskDetailNodes = (
   details: string,

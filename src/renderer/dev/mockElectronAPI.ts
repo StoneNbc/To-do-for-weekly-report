@@ -1,3 +1,5 @@
+import { createMockProjectAPI } from './mockProjectAPI';
+import type { MoveTasksInput } from '../../shared/projects';
 /**
  * Renderer 测试用的 ElectronAPI 内存 Mock。
  * 模拟 Main Process 的任务、历史、周记、设置和报告等操作，
@@ -23,6 +25,7 @@ import type {
 import type { ApiResult, ExportReportResult } from '../../shared/results';
 import {
   DEFAULT_EDGE_REVEAL_COLOR,
+  DEFAULT_NOTE_COLOR,
   DEFAULT_LLM_SETTINGS,
   DEFAULT_REMOTE_REPORT_TEMPLATE,
   DEFAULT_REPORT_PROMPT,
@@ -161,6 +164,8 @@ export function createMockElectronAPI(
     remoteConsentConfirmed: false,
   };
   let revisionSequence = 1;
+  const projectCreatedListeners = new Set<(name: string) => void>();
+  let projectCreateOpen = false;
   const listeners = new Set<(event: DataChangedEvent) => void>();
   const settingsListeners = new Set<(snapshot: SettingsSnapshot) => void>();
   const appearanceListeners = new Set<(appearance: NoteAppearance) => void>();
@@ -222,7 +227,28 @@ export function createMockElectronAPI(
   });
 
   let noteCollapsed = false;
+  const projects = createMockProjectAPI({
+    today: () => today,
+    history: () => history,
+    setToday: (value) => {
+      today = nextTodaySnapshot(value.tasks);
+    },
+    setHistory: (value) => {
+      history = nextHistorySnapshot(value.tasks);
+    },
+    changed: () =>
+      listeners.forEach((listener) => listener({ scope: 'projects', reason: 'app-write' })),
+  });
   const api = {
+    projects: {
+      ...projects,
+      async create(input) {
+        const result = await projects.create(input);
+        if (result.ok && projectCreateOpen)
+          projectCreatedListeners.forEach((listener) => listener(input.name.trim()));
+        return result;
+      },
+    },
     async healthCheck() {
       return { status: 'ok' as const };
     },
@@ -232,7 +258,7 @@ export function createMockElectronAPI(
         if (scenario === 'io-error') return failureForScenario<TodaySnapshot>()!;
         return { ok: true as const, data: clone(today) };
       },
-      async add(content: string) {
+      async add(content: string, projectName?: string | null) {
         const failure = failureForScenario<TodaySnapshot>();
         if (failure) return failure;
         today = nextTodaySnapshot([
@@ -240,10 +266,26 @@ export function createMockElectronAPI(
           {
             locator: locator(today.tasks.length + 1, today.revision),
             content,
+            ...(projectName != null ? { projectName } : {}),
             details: '',
             completed: false,
           },
         ]);
+        return { ok: true as const, data: clone(today) };
+      },
+      async moveMany(input: MoveTasksInput) {
+        if (input.locators.some((locator) => locator.revision !== today.revision))
+          return {
+            ok: false as const,
+            error: { code: 'FILE_CHANGED' as const, message: '数据已更新' },
+          };
+        today = nextTodaySnapshot(
+          today.tasks.map((task) =>
+            input.locators.some((locator) => locator.line === task.locator.line)
+              ? { ...task, projectName: input.projectName }
+              : task,
+          ),
+        );
         return { ok: true as const, data: clone(today) };
       },
       async toggle(target: { line: number; revision: string }) {
@@ -268,6 +310,7 @@ export function createMockElectronAPI(
         locator: { line: number; revision: string };
         content: string;
         details: string;
+        projectName?: string | null | undefined;
         completedAt?: string;
       }) {
         const failure = failureForScenario<TodaySnapshot>();
@@ -279,10 +322,16 @@ export function createMockElectronAPI(
                 ? {
                     ...task,
                     content: input.content,
+                    ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
                     details: input.details,
                     completedAt: input.completedAt,
                   }
-                : { ...task, content: input.content, details: input.details }
+                : {
+                    ...task,
+                    content: input.content,
+                    ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
+                    details: input.details,
+                  }
               : task,
           ),
         );
@@ -301,7 +350,11 @@ export function createMockElectronAPI(
         if (scenario === 'io-error') return failureForScenario<HistoryViewSnapshot>()!;
         return { ok: true as const, data: historyView(date) };
       },
-      async addPending(input: { date: string; content: string }) {
+      async addPending(input: {
+        date: string;
+        content: string;
+        projectName?: string | null | undefined;
+      }) {
         const failure = failureForScenario<HistoryViewSnapshot>();
         if (failure) return failure;
         today = nextTodaySnapshot([
@@ -309,6 +362,7 @@ export function createMockElectronAPI(
           {
             locator: locator(today.tasks.length + 1, today.revision),
             content: input.content,
+            ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
             details: '',
             completed: false,
             addedDate: input.date,
@@ -321,13 +375,19 @@ export function createMockElectronAPI(
         locator: { line: number; revision: string };
         content: string;
         details: string;
+        projectName?: string | null | undefined;
       }) {
         const failure = failureForScenario<HistoryViewSnapshot>();
         if (failure) return failure;
         today = nextTodaySnapshot(
           today.tasks.map((task) =>
             task.locator.line === input.locator.line
-              ? { ...task, content: input.content, details: input.details }
+              ? {
+                  ...task,
+                  content: input.content,
+                  ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
+                  details: input.details,
+                }
               : task,
           ),
         );
@@ -357,6 +417,8 @@ export function createMockElectronAPI(
               locator: locator(history.tasks.length + 5, history.revision),
               date: input.date,
               content: task.content,
+              ...(task.projectName != null ? { projectName: task.projectName } : {}),
+              ...(task.projectName != null ? { projectName: task.projectName } : {}),
               details: task.details,
               ...(task.addedDate ? { addedDate: task.addedDate } : {}),
             },
@@ -380,6 +442,7 @@ export function createMockElectronAPI(
           {
             locator: locator(today.tasks.length + 1, today.revision),
             content: task.content,
+            ...(task.projectName != null ? { projectName: task.projectName } : {}),
             details: task.details,
             completed: false,
             ...(task.addedDate ? { addedDate: task.addedDate } : {}),
@@ -392,6 +455,7 @@ export function createMockElectronAPI(
         locator: { line: number; revision: string };
         content: string;
         details: string;
+        projectName?: string | null | undefined;
         completedAt?: string;
       }) {
         const failure = failureForScenario<HistoryViewSnapshot>();
@@ -403,13 +467,21 @@ export function createMockElectronAPI(
                 ? {
                     ...task,
                     content: input.content,
+                    ...(input.projectName !== undefined ? { projectName: input.projectName } : {}),
                     details: input.details,
                     completedAt: input.completedAt,
                   }
                 : (() => {
                     const withoutTime = { ...task };
                     delete withoutTime.completedAt;
-                    return { ...withoutTime, content: input.content, details: input.details };
+                    return {
+                      ...withoutTime,
+                      content: input.content,
+                      ...(input.projectName !== undefined
+                        ? { projectName: input.projectName }
+                        : {}),
+                      details: input.details,
+                    };
                   })()
               : task,
           ),
@@ -437,6 +509,17 @@ export function createMockElectronAPI(
       },
     },
     report: {
+      async preview() {
+        return {
+          ok: true as const,
+          data: {
+            token: crypto.randomUUID(),
+            text: '本地项目工作记录预览',
+            taskCount: 2,
+            pendingCount: 0,
+          },
+        };
+      },
       async export(): Promise<ExportReportResult> {
         if (scenario === 'export-cancelled') return { status: 'cancelled' };
         if (scenario === 'io-error') return { status: 'failed', message: '报告写入失败' };
@@ -482,6 +565,12 @@ export function createMockElectronAPI(
       },
       async setNoteInteractionState(input: NoteInteractionState) {
         noteInteractionState = clone(input);
+      },
+      async openProjectCreate() {
+        projectCreateOpen = true;
+      },
+      async closeProjectCreate() {
+        projectCreateOpen = false;
       },
       async openSettings() {},
       async setSettingsDirty() {},
@@ -540,7 +629,7 @@ export function createMockElectronAPI(
         if (scenario === 'io-error') return failureForScenario<SettingsSnapshot>()!;
         settings = {
           ...settings,
-          noteColor: '#FFF8E7',
+          noteColor: DEFAULT_NOTE_COLOR,
           noteOpacity: 1,
           edgeRevealColor: DEFAULT_EDGE_REVEAL_COLOR,
         };
@@ -600,6 +689,12 @@ export function createMockElectronAPI(
       },
     },
     events: {
+      onProjectCreated(listener: (name: string) => void) {
+        projectCreatedListeners.add(listener);
+        return () => {
+          projectCreatedListeners.delete(listener);
+        };
+      },
       onDataChanged(listener: (event: DataChangedEvent) => void) {
         listeners.add(listener);
         return () => listeners.delete(listener);

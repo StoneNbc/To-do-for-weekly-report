@@ -3,14 +3,19 @@ import type { AppLogger } from '../logging/logger';
 import type { ReportService } from '../services/reportService';
 import type { ReportDraft } from '../../shared/domain';
 import type { ApiResult, ExportReportResult } from '../../shared/results';
-import { isoWeekInputSchema, reportDraftSaveSchema, reportGenerationInputSchema } from './schemas';
+import {
+  isoWeekInputSchema,
+  reportDraftSaveSchema,
+  reportGenerationInputSchema,
+  reportSourceInputSchema,
+} from './schemas';
 import { IPC } from './channels';
 import { toApiError } from './registerHandlers';
 
 export interface RegisterReportHandlersOptions {
   ipcMain: Pick<IpcMain, 'handle' | 'removeHandler'>;
   reportService: Pick<ReportService, 'export' | 'openLast' | 'revealLast'> &
-    Partial<Pick<ReportService, 'generateDraft' | 'saveDraft' | 'discardDraft'>>;
+    Partial<Pick<ReportService, 'generateDraft' | 'saveDraft' | 'discardDraft' | 'preview'>>;
   logger: AppLogger;
 }
 
@@ -25,6 +30,14 @@ export const registerReportHandlers = ({
   logger,
 }: RegisterReportHandlersOptions): (() => void) => {
   const controllers = new Map<string, AbortController>();
+  ipcMain.handle(IPC.reportPreview, async (_event, input: unknown) => {
+    try {
+      const value = reportSourceInputSchema.parse(input);
+      return { ok: true, data: await reportService.preview!(value.isoYear, value.isoWeek, value) };
+    } catch (error) {
+      return toApiError(error, logger);
+    }
+  });
   ipcMain.handle(IPC.reportExport, async (_event, input: unknown): Promise<ExportReportResult> => {
     // 导出采用三态结果，取消是正常状态，因此不套用普通 ApiResult。
     const parsed = isoWeekInputSchema.safeParse(input);
@@ -50,6 +63,7 @@ export const registerReportHandlers = ({
           parsed.data.isoYear,
           parsed.data.isoWeek,
           controller.signal,
+          parsed.data,
         );
         return { ok: true, data: draft };
       } catch (error) {
@@ -109,6 +123,7 @@ export const registerReportHandlers = ({
   handleAction(IPC.reportRevealLast, () => reportService.revealLast());
 
   return () => {
+    ipcMain.removeHandler(IPC.reportPreview);
     ipcMain.removeHandler(IPC.reportExport);
     ipcMain.removeHandler(IPC.reportGenerate);
     ipcMain.removeHandler(IPC.reportCancel);

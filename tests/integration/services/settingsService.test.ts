@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_CONFIG } from '../../../src/shared/constants';
+import { DEFAULT_CONFIG, DEFAULT_NOTE_COLOR } from '../../../src/shared/constants';
 import type { AppConfig, NoteAppearance, SettingsSnapshot } from '../../../src/shared/domain';
 import type { ConfigService } from '../../../src/main/services/configService';
 import { SettingsService } from '../../../src/main/services/settingsService';
@@ -10,8 +10,8 @@ const makeRuntime = () => ({
   broadcastSettingsChanged: vi.fn<(snapshot: SettingsSnapshot) => void>(),
 });
 
-const makeConfig = () => {
-  let config: AppConfig = { ...DEFAULT_CONFIG, future_setting: { enabled: true } };
+const makeConfig = (overrides: Partial<AppConfig> = {}) => {
+  let config: AppConfig = { ...DEFAULT_CONFIG, ...overrides, future_setting: { enabled: true } };
   return {
     get: vi.fn(() => structuredClone(config)),
     commit: vi.fn(async (patch) => {
@@ -25,11 +25,15 @@ describe('SettingsService', () => {
   it('previews without persisting and commits a public snapshot', async () => {
     const config = makeConfig();
     const runtime = makeRuntime();
-    const service = new SettingsService({ config, dataDirectory: '/safe/data', runtime });
+    const service = new SettingsService({
+      config,
+      dataDirectory: '/safe/data',
+      runtime,
+    });
 
     service.previewAppearance({ noteOpacity: 0.8 });
     expect(runtime.previewAppearance).toHaveBeenCalledWith({
-      noteColor: '#FFF8E7',
+      noteColor: DEFAULT_NOTE_COLOR,
       noteOpacity: 0.8,
     });
     expect(config.commit).not.toHaveBeenCalled();
@@ -42,6 +46,7 @@ describe('SettingsService', () => {
       edgeRevealColor: '#0284C7',
     });
     expect(snapshot).toEqual({
+      selectedProject: { kind: 'all' },
       noteColor: '#E0F2FE',
       noteOpacity: 1,
       alwaysOnTop: false,
@@ -64,10 +69,14 @@ describe('SettingsService', () => {
   });
 
   it('restores the last successful appearance after persistence fails', async () => {
-    const config = makeConfig();
+    const config = makeConfig({ note_color: '#FFF8E7', note_opacity: 0.9 });
     config.commit.mockRejectedValueOnce(new Error('disk full'));
     const runtime = makeRuntime();
-    const service = new SettingsService({ config, dataDirectory: '/safe/data', runtime });
+    const service = new SettingsService({
+      config,
+      dataDirectory: '/safe/data',
+      runtime,
+    });
 
     service.previewAppearance({ noteColor: '#111827', noteOpacity: 0.65 });
     await expect(service.update({ noteColor: '#111827', noteOpacity: 0.65 })).rejects.toMatchObject(
@@ -77,7 +86,7 @@ describe('SettingsService', () => {
     );
     expect(runtime.previewAppearance).toHaveBeenLastCalledWith({
       noteColor: '#FFF8E7',
-      noteOpacity: 1,
+      noteOpacity: 0.9,
     });
     expect(runtime.applySettings).not.toHaveBeenCalled();
   });

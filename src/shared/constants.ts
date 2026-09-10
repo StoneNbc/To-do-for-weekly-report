@@ -20,7 +20,7 @@ export const EDGE_HIDE_DELAY_MS = 500; // 鼠标移出后延迟多久才隐藏
 export const WINDOW_MOVE_SETTLE_MS = 150; // 窗口移动停止后多久判定为“稳定”，用于贴边判定
 
 // ---- 便利贴外观默认值 ----
-export const DEFAULT_NOTE_COLOR = '#FFF8E7'; // 默认米黄背景
+export const DEFAULT_NOTE_COLOR = '#F2F3F5'; // Soft Frost 默认珍珠灰背景；已保存颜色不迁移
 export const DEFAULT_EDGE_REVEAL_COLOR = '#92400E'; // 隐藏提示条默认颜色
 export const DEFAULT_NOTE_OPACITY = 1; // 默认完全不透明
 export const MIN_NOTE_OPACITY = 0.6; // 透明度下限
@@ -81,7 +81,12 @@ export const DEFAULT_LLM_SETTINGS = {
   allowInsecureHttp: false,
 } as const;
 
+export const PROJECT_CONSENT_VERSION = 2;
+
 export const DEFAULT_CONFIG = {
+  selected_project: { kind: 'all' },
+  remote_consent_origin: null,
+  remote_consent_version: 0,
   schema_version: 2,
   cleanup_time: '00:00',
   agent: 'template',

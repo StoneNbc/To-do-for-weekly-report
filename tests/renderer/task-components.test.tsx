@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import './setup';
 import { CompletedSection } from '../../src/renderer/components/CompletedSection';
+import { TaskList } from '../../src/renderer/components/TaskList';
 import { TaskItem } from '../../src/renderer/components/TaskItem';
 import { mockTodaySnapshot } from '../../src/renderer/dev/mockElectronAPI';
 
@@ -203,5 +204,37 @@ describe('CompletedSection', () => {
     rerender(<CompletedSection {...props} expanded />);
     expect(screen.getAllByRole('listitem')).toHaveLength(5);
     expect(screen.getByText('补充测试场景')).toBeInTheDocument();
+  });
+});
+
+describe('empty project groups', () => {
+  it('shows active projects even with no tasks and keeps the empty completed section compact', () => {
+    const projects = [{ name: '项目2', status: 'active' as const }];
+    render(
+      <>
+        <TaskList
+          tasks={[]}
+          projects={projects}
+          groupByProject
+          onToggle={vi.fn()}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+          onAddToProject={vi.fn()}
+        />
+        <CompletedSection
+          tasks={[]}
+          projects={projects}
+          groupByProject
+          expanded
+          onToggleExpanded={vi.fn()}
+          onToggle={vi.fn()}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+        />
+      </>,
+    );
+    expect(screen.getAllByRole('button', { name: /项目2.*0/ })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: '添加待办到：项目2' })).toBeInTheDocument();
+    expect(screen.getByText('今天还没有已完成事项')).toBeInTheDocument();
   });
 });

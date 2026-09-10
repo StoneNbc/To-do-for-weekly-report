@@ -17,6 +17,7 @@ import { PROVIDER_PRESETS } from '../../shared/providerPresets';
 import { useElectronAPI } from '../hooks/useElectronAPI';
 
 const PRESET_COLORS = [
+  { name: '珍珠灰', value: '#F2F3F5' },
   { name: '米黄', value: '#FFF8E7' },
   { name: '樱粉', value: '#FCE7F3' },
   { name: '薄荷', value: '#DCFCE7' },
@@ -88,9 +89,7 @@ export function SettingsPage() {
         ...(patch.edgeAutoHideEnabled !== undefined
           ? { edgeAutoHideEnabled: patch.edgeAutoHideEnabled }
           : {}),
-        ...(patch.edgeRevealColor !== undefined
-          ? { edgeRevealColor: patch.edgeRevealColor }
-          : {}),
+        ...(patch.edgeRevealColor !== undefined ? { edgeRevealColor: patch.edgeRevealColor } : {}),
         ...(patch.completedExpanded !== undefined
           ? { completedExpanded: patch.completedExpanded }
           : {}),
@@ -329,8 +328,8 @@ export function SettingsPage() {
             className="settings-secondary-button mt-5"
             disabled={
               settings.noteColor === DEFAULT_NOTE_COLOR &&
-                settings.noteOpacity === DEFAULT_NOTE_OPACITY &&
-                settings.edgeRevealColor === DEFAULT_EDGE_REVEAL_COLOR
+              settings.noteOpacity === DEFAULT_NOTE_OPACITY &&
+              settings.edgeRevealColor === DEFAULT_EDGE_REVEAL_COLOR
             }
             onClick={async () => {
               const previous = savedRef.current;
@@ -624,7 +623,7 @@ function ReportGenerationSettings() {
           />
           <p className="mt-[-12px] text-xs text-stone-500">
             可用变量：{'{{iso_year}}'}、{'{{iso_week}}'}、{'{{week_start}}'}、{'{{week_end}}'}、
-            {'{{tasks}}'}（必需）
+            {'{{tasks}}'} 或 {'{{project_records}}'}（至少一个；后者按项目分组）
           </p>
           <div>
             <div className="mb-2 flex items-center justify-between">

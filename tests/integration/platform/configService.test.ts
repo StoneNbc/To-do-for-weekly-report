@@ -41,7 +41,7 @@ describe('ConfigService', () => {
     expect(config.show_on_fullscreen).toBe(true);
     expect(config.edge_auto_hide).toBe(false);
     expect(config.edge_reveal_color).toBe('#92400E');
-    expect(config.note_color).toBe('#FFF8E7');
+    expect(config.note_color).toBe('#F2F3F5');
     expect(config.note_opacity).toBe(1);
     expect(persisted.schema_version).toBe(2);
   });
@@ -73,7 +73,7 @@ describe('ConfigService', () => {
     expect(config.always_on_top).toBe(true);
     expect(config.edge_auto_hide).toBe(false);
     expect(config.agent).toBe('template');
-    expect(config.note_color).toBe('#FFF8E7');
+    expect(config.note_color).toBe('#F2F3F5');
     expect(config.note_opacity).toBe(1);
     expect(config.future_setting).toEqual({ enabled: true });
     expect(logger.warn).toHaveBeenCalled();

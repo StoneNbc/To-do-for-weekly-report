@@ -1,3 +1,10 @@
+import {
+  PROJECT_FORMAT,
+  projectFormatWarnings,
+  parseProjectContent,
+  formatProjectContent,
+  type ProjectFormatNode,
+} from './projectField';
 import type { ParseWarning } from '../../shared/domain';
 import {
   formatChineseWeekday,
@@ -40,6 +47,7 @@ export interface ArchivedTaskNode extends WeekNodeBase {
   kind: 'archivedTask';
   date: string;
   content: string;
+  projectName?: string | null;
   addedDate?: string;
   completedAt?: string;
 }
@@ -59,6 +67,7 @@ export interface WeekUnknownNode extends WeekNodeBase {
 }
 
 export type WeekNode =
+  | ProjectFormatNode
   | WeekHeaderNode
   | DayHeaderNode
   | ArchivedTaskNode
@@ -67,6 +76,7 @@ export type WeekNode =
   | WeekUnknownNode;
 
 export interface WeekDocument {
+  projectFormat: boolean;
   isoYear: number;
   isoWeek: number;
   nodes: WeekNode[];
@@ -115,7 +125,8 @@ export const parseWeek = (text: string, options: ParseWeekOptions): WeekDocument
     options.file ?? `week-${options.isoYear}-W${String(options.isoWeek).padStart(2, '0')}.txt`;
   const decoded = decodeText(text);
   const nodes: WeekNode[] = [];
-  const warnings: ParseWarning[] = [];
+  const warnings: ParseWarning[] = projectFormatWarnings(decoded.lines, file);
+  const projectFormat = decoded.lines[1] === PROJECT_FORMAT;
   const seenDates = new Set<string>();
   let currentDate: string | null = null;
   let hasWeekHeader = false;
@@ -126,6 +137,11 @@ export const parseWeek = (text: string, options: ParseWeekOptions): WeekDocument
   }
 
   decoded.lines.forEach((raw, line) => {
+    if (raw.startsWith('!format:')) {
+      nodes.push({ kind: 'projectFormat', raw, line });
+      acceptsTaskDetail = false;
+      return;
+    }
     if (raw === '') {
       nodes.push({ kind: 'blank', raw, line });
       acceptsTaskDetail = false;
@@ -234,6 +250,21 @@ export const parseWeek = (text: string, options: ParseWeekOptions): WeekDocument
           makeWarning(file, line, 'INVALID_ADDED_DATE', `无效的添加日期：${addedLike[1]}`),
         );
       }
+      let projectName: string | null = null;
+      if (projectFormat) {
+        try {
+          const parsed = parseProjectContent(content);
+          content = parsed.content;
+          projectName = parsed.projectName;
+        } catch {
+          warnings.push({
+            file,
+            line,
+            code: 'INVALID_PROJECT',
+            reason: '项目字段无效，请检查名称与引号',
+          });
+        }
+      }
       const node: ArchivedTaskNode = {
         kind: 'archivedTask',
         raw,
@@ -241,6 +272,7 @@ export const parseWeek = (text: string, options: ParseWeekOptions): WeekDocument
         date: currentDate,
         content,
       };
+      if (projectName !== null) node.projectName = projectName;
       if (addedDate !== undefined) node.addedDate = addedDate;
       if (completedAt !== undefined) node.completedAt = completedAt;
       nodes.push(node);
@@ -275,6 +307,7 @@ export const parseWeek = (text: string, options: ParseWeekOptions): WeekDocument
     isoYear: options.isoYear,
     isoWeek: options.isoWeek,
     nodes,
+    projectFormat,
     eol: decoded.eol,
     endsWithEol: decoded.endsWithEol,
     hadBom: decoded.hadBom,
@@ -298,8 +331,10 @@ export const formatArchivedTask = (
   content: string,
   addedDate?: string,
   completedAt?: string,
+  projectName?: string | null,
+  projectFormat = false,
 ): string =>
-  `- ${content}${addedDate ? ` @添加:${addedDate}` : ''}${completedAt ? ` @${completedAt}` : ''}`;
+  `- ${formatProjectContent(content, projectName, projectFormat)}${addedDate ? ` @添加:${addedDate}` : ''}${completedAt ? ` @${completedAt}` : ''}`;
 
 export const createWeekTaskDetailNodes = (details: string, startLine = 0): WeekTaskDetailNode[] =>
   details === ''

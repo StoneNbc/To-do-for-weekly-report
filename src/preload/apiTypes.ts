@@ -1,4 +1,13 @@
 import type {
+  ProjectMutation,
+  ProjectSnapshot,
+  ProjectRenamePlan,
+  ProjectStatus,
+  MoveTasksInput,
+  ProjectReportOptions,
+  ReportSourcePreview,
+} from '../shared/projects';
+import type {
   DataChangedEvent,
   HistoryViewSnapshot,
   LocalTime,
@@ -25,6 +34,7 @@ export interface IsoWeekInput {
 }
 
 export interface EditTodayInput {
+  projectName?: string | null | undefined;
   locator: TaskLocator;
   content: string;
   details: string;
@@ -32,6 +42,7 @@ export interface EditTodayInput {
 }
 
 export interface AddHistoricalInput {
+  projectName?: string | null | undefined;
   date: string;
   content: string;
   details: string;
@@ -39,6 +50,7 @@ export interface AddHistoricalInput {
 }
 
 export interface AddPendingFromHistoryInput {
+  projectName?: string | null | undefined;
   date: string;
   content: string;
 }
@@ -49,6 +61,7 @@ export interface HistoricalTaskLocatorInput {
 }
 
 export interface EditPendingFromHistoryInput extends HistoricalTaskLocatorInput {
+  projectName?: string | null | undefined;
   content: string;
   details: string;
 }
@@ -70,10 +83,36 @@ export interface ElectronAPI {
   healthCheck(): Promise<{ status: 'ok' }>;
   today: {
     get(): Promise<ApiResult<TodaySnapshot>>;
-    add(content: string): Promise<ApiResult<TodaySnapshot>>;
+    add(content: string, projectName?: string | null): Promise<ApiResult<TodaySnapshot>>;
+    moveMany(input: MoveTasksInput): Promise<ApiResult<TodaySnapshot>>;
     toggle(locator: TaskLocator): Promise<ApiResult<TodaySnapshot>>;
     edit(input: EditTodayInput): Promise<ApiResult<TodaySnapshot>>;
     delete(locator: TaskLocator): Promise<ApiResult<TodaySnapshot>>;
+  };
+  projects: {
+    get(): Promise<ApiResult<ProjectSnapshot>>;
+    create(
+      input: ProjectMutation & { color?: string | undefined },
+    ): Promise<ApiResult<ProjectSnapshot>>;
+    update(
+      input: ProjectMutation & {
+        status?: ProjectStatus | undefined;
+        color?: string | null | undefined;
+      },
+    ): Promise<ApiResult<ProjectSnapshot>>;
+    reorder(input: {
+      names: string[];
+      expectedRevision: string;
+    }): Promise<ApiResult<ProjectSnapshot>>;
+    deleteEmpty(input: ProjectMutation): Promise<ApiResult<ProjectSnapshot>>;
+    previewRename(input: {
+      oldName: string;
+      newName: string;
+      expectedRevision: string;
+    }): Promise<ApiResult<ProjectRenamePlan>>;
+    rename(token: string): Promise<ApiResult<ProjectSnapshot>>;
+    retryRecovery(): Promise<ApiResult<ProjectSnapshot>>;
+    openRecoveryFolder(): Promise<ApiResult<void>>;
   };
   history: {
     getView(date: string): Promise<ApiResult<HistoryViewSnapshot>>;
@@ -90,7 +129,10 @@ export interface ElectronAPI {
   };
   report: {
     export(input: IsoWeekInput): Promise<ExportReportResult>;
-    generate(input: IsoWeekInput & { requestId: string }): Promise<ApiResult<ReportDraft>>;
+    preview(input: IsoWeekInput & ProjectReportOptions): Promise<ApiResult<ReportSourcePreview>>;
+    generate(
+      input: IsoWeekInput & ProjectReportOptions & { requestId: string },
+    ): Promise<ApiResult<ReportDraft>>;
     cancel(requestId: string): Promise<ApiResult<void>>;
     saveDraft(input: { draftId: string; content: string }): Promise<ExportReportResult>;
     discardDraft(draftId: string): Promise<ApiResult<void>>;
@@ -104,6 +146,8 @@ export interface ElectronAPI {
     setNoteCollapsed(collapsed: boolean): Promise<boolean>;
     getNoteDockState(): Promise<NoteDockSnapshot>;
     setNoteInteractionState(input: NoteInteractionState): Promise<void>;
+    openProjectCreate(): Promise<void>;
+    closeProjectCreate(): Promise<void>;
     openSettings(): Promise<void>;
     setSettingsDirty(dirty: boolean): Promise<void>;
     discardSettingsChangesAndClose(): Promise<void>;
@@ -133,6 +177,7 @@ export interface ElectronAPI {
   };
   events: {
     /** 返回退订函数，React effect 卸载时必须调用，防止重复监听。 */
+    onProjectCreated(listener: (name: string) => void): () => void;
     onDataChanged(listener: (event: DataChangedEvent) => void): () => void;
     onSettingsChanged(listener: (snapshot: SettingsSnapshot) => void): () => void;
     onAppearancePreviewed(listener: (appearance: NoteAppearance) => void): () => void;

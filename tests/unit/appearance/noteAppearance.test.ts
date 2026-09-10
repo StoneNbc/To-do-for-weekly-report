@@ -14,7 +14,7 @@ describe('note appearance contracts', () => {
     expect(isValidNoteColor('#FCE7F3')).toBe(true);
     expect(isValidNoteColor('#fff')).toBe(false);
     expect(isValidNoteColor('#FFF8E7FF')).toBe(false);
-    expect(sanitizeNoteColor('invalid')).toBe('#FFF8E7');
+    expect(sanitizeNoteColor('invalid')).toBe('#F2F3F5');
   });
 
   it('accepts opacity only from 60% to 100% in 5% steps', () => {

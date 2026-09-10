@@ -17,7 +17,7 @@ describe('AppRouter ElectronAPI contract', () => {
     expect(await screen.findByRole('textbox', { name: '添加待办' })).toBeInTheDocument();
   });
 
-  it('仅白名单 weekly 和 settings 进入对应页面，未知 view 回退便利贴', async () => {
+  it('仅白名单 weekly、settings 和 project-create 进入对应页面，未知 view 回退便利贴', async () => {
     window.history.replaceState({}, '', '/?view=weekly');
     window.electronAPI = createMockElectronAPI().api;
     const { unmount } = render(<AppRouter />);
@@ -28,6 +28,11 @@ describe('AppRouter ElectronAPI contract', () => {
     const settingsView = render(<AppRouter />);
     expect(await screen.findByRole('heading', { name: '设置' })).toBeInTheDocument();
     settingsView.unmount();
+
+    window.history.replaceState({}, '', '/?view=project-create');
+    const creationView = render(<AppRouter />);
+    expect(await screen.findByRole('heading', { name: '新建项目' })).toBeInTheDocument();
+    creationView.unmount();
 
     window.history.replaceState({}, '', '/?view=unexpected');
     render(<AppRouter />);

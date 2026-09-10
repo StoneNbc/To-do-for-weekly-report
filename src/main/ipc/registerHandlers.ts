@@ -4,6 +4,7 @@ import type { ApiErrorCode, ApiResult } from '../../shared/results';
 import { IPC } from './channels';
 import {
   contentSchema,
+  projectNameSchema,
   detailsSchema,
   isoDateSchema,
   isoWeekInputSchema,
@@ -19,18 +20,24 @@ import { getIsoWeekInfo } from '../../shared/dateUtils';
 const editTodaySchema = z.object({
   locator: taskLocatorSchema,
   content: contentSchema,
+  projectName: projectNameSchema.nullable().optional(),
   details: detailsSchema,
   completedAt: localTimeSchema.optional(),
 });
 const addHistoricalSchema = z.object({
   date: isoDateSchema,
   content: contentSchema,
+  projectName: projectNameSchema.nullable().optional(),
   details: detailsSchema,
   completedAt: localTimeSchema.optional(),
 });
 const editHistoricalSchema = addHistoricalSchema.extend({ locator: taskLocatorSchema });
 const deleteHistoricalSchema = z.object({ date: isoDateSchema, locator: taskLocatorSchema });
-const addPendingFromHistorySchema = z.object({ date: isoDateSchema, content: contentSchema });
+const addPendingFromHistorySchema = z.object({
+  date: isoDateSchema,
+  content: contentSchema,
+  projectName: projectNameSchema.nullable().optional(),
+});
 const editPendingFromHistorySchema = addPendingFromHistorySchema.extend({
   locator: taskLocatorSchema,
   details: detailsSchema,
@@ -64,6 +71,12 @@ export interface RegisterBusinessHandlersOptions {
 }
 
 const publicErrorCodes = new Set<ApiErrorCode>([
+  'PROJECT_NAME_EXISTS',
+  'PROJECT_NOT_FOUND',
+  'PROJECT_HAS_PENDING',
+  'PROJECT_IN_USE',
+  'PROJECT_FORMAT_INVALID',
+  'PROJECT_RECOVERY_REQUIRED',
   'INVALID_INPUT',
   'FILE_CHANGED',
   'NOT_FOUND',
@@ -127,8 +140,15 @@ export const registerBusinessHandlers = ({
   };
 
   handle(IPC.todayGet, () => services.task.getToday());
-  handle(IPC.todayAdd, async (input) => {
-    const snapshot = await services.task.addTodayTask(parse(contentSchema, input));
+  handle(IPC.todayAdd, async (input, projectName) => {
+    const content = parse(contentSchema, input);
+    const snapshot =
+      projectName === undefined
+        ? await services.task.addTodayTask(content)
+        : await services.task.addTodayTask(
+            content,
+            projectNameSchema.nullable().parse(projectName),
+          );
     onAppWrite?.('today', snapshot.revision);
     return snapshot;
   });
@@ -144,6 +164,7 @@ export const registerBusinessHandlers = ({
       value.content,
       value.details,
       value.completedAt,
+      ...(value.projectName !== undefined ? [value.projectName] : []),
     );
     onAppWrite?.('today', snapshot.revision);
     return snapshot;

@@ -1,5 +1,11 @@
 /** 可安全穿过 IPC 边界并展示给用户的错误代码。 */
 export type ApiErrorCode =
+  | 'PROJECT_NAME_EXISTS'
+  | 'PROJECT_NOT_FOUND'
+  | 'PROJECT_HAS_PENDING'
+  | 'PROJECT_IN_USE'
+  | 'PROJECT_FORMAT_INVALID'
+  | 'PROJECT_RECOVERY_REQUIRED'
   | 'INVALID_INPUT'
   | 'FILE_CHANGED'
   | 'NOT_FOUND'

@@ -1,8 +1,13 @@
+import type { ProjectView } from '../../shared/projects';
 import { useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { AddedDateDisplay, TaskLocator } from '../../shared/domain';
 import { ChevronIcon } from './ChevronIcon';
 
 export interface TaskItemProps {
+  projectName?: string | null | undefined;
+  projects?: ProjectView[] | undefined;
+  selected?: boolean | undefined;
+  onSelect?: (() => void) | undefined;
   locator: TaskLocator;
   content: string;
   details: string;
@@ -21,6 +26,7 @@ export interface TaskItemProps {
     content: string,
     details: string,
     completedAt?: string,
+    projectName?: string | null,
   ) => Promise<boolean> | boolean;
   onDelete: (locator: TaskLocator) => void;
 }
@@ -32,6 +38,10 @@ export interface TaskItemProps {
  */
 export function TaskItem({
   locator,
+  projectName,
+  projects,
+  selected,
+  onSelect,
   content,
   details,
   completed,
@@ -52,6 +62,7 @@ export function TaskItem({
   const [draft, setDraft] = useState(content);
   const [detailsDraft, setDetailsDraft] = useState(details);
   const [timeDraft, setTimeDraft] = useState(completedAt ?? '');
+  const [projectDraft, setProjectDraft] = useState(projectName ?? '');
   const [validationError, setValidationError] = useState<string | null>(null);
   const committingRef = useRef(false);
   const detailsId = useId();
@@ -65,10 +76,11 @@ export function TaskItem({
   };
 
   const startEditing = () => {
-    if (disabled) return;
+    if (disabled || selected !== undefined) return;
     setDraft(content);
     setDetailsDraft(details);
     setTimeDraft(completedAt ?? '');
+    setProjectDraft(projectName ?? '');
     setValidationError(null);
     setEditing(true);
   };
@@ -77,6 +89,7 @@ export function TaskItem({
     setDraft(content);
     setDetailsDraft(details);
     setTimeDraft(completedAt ?? '');
+    setProjectDraft(projectName ?? '');
     setValidationError(null);
     setEditing(false);
   };
@@ -90,7 +103,13 @@ export function TaskItem({
     }
     const normalizedDetails = detailsDraft.replace(/\r\n?/g, '\n');
     const timeChanged = editableTime && timeDraft !== (completedAt ?? '');
-    if (normalized === content && normalizedDetails === details && !timeChanged) {
+    const projectChanged = projectDraft !== (projectName ?? '');
+    if (
+      normalized === content &&
+      normalizedDetails === details &&
+      !timeChanged &&
+      !projectChanged
+    ) {
       setEditing(false);
       return;
     }
@@ -102,6 +121,7 @@ export function TaskItem({
         normalized,
         normalizedDetails,
         editableTime ? timeDraft || undefined : completedAt,
+        ...(projectChanged ? [projectDraft || null] : []),
       );
       if (saved) setEditing(false);
     } finally {
@@ -141,11 +161,11 @@ export function TaskItem({
           </span>
         ) : (
           <input
-            aria-label={`${completed ? '撤销完成' : '完成任务'}：${content}`}
-            checked={completed}
+            aria-label={`${selected !== undefined ? '选择待办' : completed ? '撤销完成' : '完成任务'}：${content}`}
+            checked={selected ?? completed}
             className={`h-4 w-4 shrink-0 accent-amber-700 ${editing ? 'mt-7' : ''}`}
             disabled={disabled}
-            onChange={() => onToggle?.(locator)}
+            onChange={() => (selected !== undefined ? onSelect?.() : onToggle?.(locator))}
             type="checkbox"
           />
         )}
@@ -177,6 +197,35 @@ export function TaskItem({
                   value={detailsDraft}
                 />
               </label>
+              {projects && (
+                <label className="text-[11px] font-medium text-stone-500">
+                  所属项目
+                  <select
+                    aria-label={`所属项目：${content}`}
+                    className="mt-1 w-full rounded-md border border-stone-300 bg-white px-2 py-1.5 text-sm"
+                    value={projectDraft}
+                    disabled={disabled}
+                    onChange={(event) => setProjectDraft(event.target.value)}
+                  >
+                    <option value="">未分类</option>
+                    {projectName && !projects.some((project) => project.name === projectName) && (
+                      <option value={projectName}>{projectName}（未登记）</option>
+                    )}
+                    {projects
+                      .filter(
+                        (project) =>
+                          (project.status === 'active' && !project.unregistered) ||
+                          project.name === projectName,
+                      )
+                      .map((project) => (
+                        <option key={project.name} value={project.name}>
+                          {project.name}
+                          {project.status === 'archived' ? '（已归档）' : ''}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              )}
               {editableTime ? (
                 <label className="text-[11px] font-medium text-stone-500">
                   完成时间
@@ -235,6 +284,18 @@ export function TaskItem({
           )}
         </div>
 
+        {!editing && projects && selected === undefined && (
+          <button
+            type="button"
+            className="shrink-0 rounded px-1 text-xs text-stone-500 hover:bg-white/70"
+            aria-label={`编辑所属项目：${content}`}
+            title={projectName ?? '未分类'}
+            disabled={disabled}
+            onClick={startEditing}
+          >
+            ⋯
+          </button>
+        )}
         {!editing && completedAt ? (
           <time className="shrink-0 text-[11px] tabular-nums text-stone-400">{completedAt}</time>
         ) : null}

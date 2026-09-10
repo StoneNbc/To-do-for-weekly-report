@@ -18,6 +18,9 @@ import {
   type TodayTaskNode,
 } from '../parsers/todayParser';
 import { FileChangedError, TextFileStore, type TextFileSnapshot } from './textFileStore';
+import { assertProjectWritable, replaceProjectField } from '../parsers/projectField';
+import { upgradeProjectFormat } from './projectFormatUpgrade';
+import { normalizeProjectName, type MoveTasksInput } from '../../shared/projects';
 
 /** locator 指向的物理行不存在，或该行不是可操作任务。 */
 export class TaskLineNotFoundError extends Error {
@@ -49,6 +52,7 @@ export interface TodayAddResult extends TodayReadResult {
 }
 
 export interface TodayTaskChanges {
+  projectName?: string | null | undefined;
   content?: string;
   details?: string;
   completed?: boolean;
@@ -74,7 +78,11 @@ export class TodayRepository {
     } catch (error) {
       if (!isMissingFile(error)) throw error;
       // initialize 只创建缺失文件；已有但损坏的文件必须留给用户修复，不能静默覆盖。
-      await this.store.writeAtomic(this.path, `# ${date}\n`);
+      try {
+        await this.store.createAtomic(this.path, `# ${date}\n`);
+      } catch (error) {
+        if (!(error instanceof FileChangedError)) throw error;
+      }
       return this.read();
     }
   }
@@ -89,15 +97,26 @@ export class TodayRepository {
     expectedRevision: string | null = null,
     addedDate?: string,
     details = '',
+    projectName: string | null = null,
   ): Promise<TodayAddResult> {
     const normalized = assertValidTaskContent(content);
     const normalizedDetails = assertValidTaskDetails(details);
     if (addedDate !== undefined) assertValidIsoDate(addedDate);
-    const result = await this.store.update(this.path, expectedRevision, (file) => {
+    if (projectName !== null) projectName = normalizeProjectName(projectName);
+    const result = await this.store.update(this.path, expectedRevision, async (file) => {
       const document = parseToday(file.text, { file: this.path });
+      assertProjectWritable(document);
+      if (projectName !== null) await upgradeProjectFormat(document, file);
       const newNode: TodayTaskNode = {
         kind: 'task',
-        raw: formatTodayTask(normalized, false, addedDate),
+        raw: formatTodayTask(
+          normalized,
+          false,
+          addedDate,
+          undefined,
+          projectName,
+          document.projectFormat,
+        ),
         line: 0,
         completed: false,
         content: normalized,
@@ -113,7 +132,7 @@ export class TodayRepository {
         lastTask >= 0
           ? getTodayTaskBlockEnd(document.nodes, lastTask)
           : header >= 0
-            ? header + 1
+            ? header + (document.projectFormat ? 2 : 1)
             : document.nodes.length;
       document.nodes.splice(
         insertion,
@@ -133,11 +152,22 @@ export class TodayRepository {
   async updateTask(locator: TaskLocator, changes: TodayTaskChanges): Promise<TodayReadResult> {
     if (locator.line < 0 || !Number.isInteger(locator.line))
       throw new TaskLineNotFoundError(locator.line);
-    const result = await this.store.update(this.path, locator.revision, (file) => {
+    const result = await this.store.update(this.path, locator.revision, async (file) => {
       const document = parseToday(file.text, { file: this.path });
+      assertProjectWritable(document);
       const node = document.nodes[locator.line];
       if (!node || node.kind !== 'task') throw new TaskLineNotFoundError(locator.line);
 
+      if (changes.projectName !== undefined && changes.projectName !== null) {
+        normalizeProjectName(changes.projectName);
+        await upgradeProjectFormat(document, file);
+      }
+
+      const projectOnly =
+        changes.projectName !== undefined &&
+        (changes.content === undefined || changes.content === node.content) &&
+        changes.completed === undefined &&
+        (changes.completedAt === undefined || changes.completedAt === node.completedAt);
       const content =
         changes.content === undefined ? node.content : assertValidTaskContent(changes.content);
       const details =
@@ -152,13 +182,26 @@ export class TodayRepository {
       node.completed = completed;
       if (completedAt === undefined) delete node.completedAt;
       else node.completedAt = completedAt;
-      node.raw = formatTodayTask(content, completed, node.addedDate, completedAt);
-      if (details !== undefined) {
-        const blockEnd = getTodayTaskBlockEnd(document.nodes, locator.line);
+      const projectName =
+        changes.projectName === undefined ? node.projectName : changes.projectName;
+      node.projectName = projectName ?? null;
+      node.raw =
+        projectOnly && document.projectFormat
+          ? replaceProjectField(node.raw, projectName ?? null)
+          : formatTodayTask(
+              content,
+              completed,
+              node.addedDate,
+              completedAt,
+              projectName,
+              document.projectFormat,
+            );
+      if (details !== undefined && details !== readTodayTaskDetails(document.nodes, node.line)) {
+        const blockEnd = getTodayTaskBlockEnd(document.nodes, node.line);
         document.nodes.splice(
-          locator.line + 1,
-          blockEnd - locator.line - 1,
-          ...createTodayTaskDetailNodes(details, locator.line + 1),
+          node.line + 1,
+          blockEnd - node.line - 1,
+          ...createTodayTaskDetailNodes(details, node.line + 1),
         );
         reindexTodayNodes(document.nodes);
       }
@@ -170,6 +213,7 @@ export class TodayRepository {
   async deleteTask(locator: TaskLocator): Promise<TodayReadResult> {
     const result = await this.store.update(this.path, locator.revision, (file) => {
       const document = parseToday(file.text, { file: this.path });
+      assertProjectWritable(document);
       const node = document.nodes[locator.line];
       if (!node || node.kind !== 'task') throw new TaskLineNotFoundError(locator.line);
       document.nodes.splice(
@@ -186,6 +230,7 @@ export class TodayRepository {
     assertValidIsoDate(targetDate);
     const result = await this.store.update(this.path, expectedRevision, (file) => {
       const document = parseToday(file.text, { file: this.path });
+      assertProjectWritable(document);
       const header = document.nodes.find((node) => node.kind === 'header');
       if (!header || document.fileDate === null) {
         throw new InvalidTodayFileError('today.txt 缺少合法日期头，无法自动归档');
@@ -213,6 +258,34 @@ export class TodayRepository {
     return this.fromFile(result.snapshot);
   }
 
+  async moveMany(input: MoveTasksInput): Promise<TodaySnapshot> {
+    const revision = input.locators[0]?.revision;
+    if (
+      !revision ||
+      input.locators.some((locator) => locator.revision !== revision) ||
+      new Set(input.locators.map((locator) => locator.line)).size !== input.locators.length
+    ) {
+      throw new RangeError('请选择同一文件快照中的待办');
+    }
+    const projectName = input.projectName === null ? null : normalizeProjectName(input.projectName);
+    const result = await this.store.update(this.path, revision, async (file) => {
+      const document = parseToday(file.text, { file: this.path });
+      assertProjectWritable(document);
+      const nodes = input.locators.map((locator) => {
+        const node = document.nodes[locator.line];
+        if (!node || node.kind !== 'task' || node.completed)
+          throw new TaskLineNotFoundError(locator.line);
+        return node;
+      });
+      if (projectName !== null) await upgradeProjectFormat(document, file);
+      for (const node of nodes) {
+        if (document.projectFormat) node.raw = replaceProjectField(node.raw, projectName);
+      }
+      return { text: serializeToday(document), result: undefined };
+    });
+    return this.fromFile(result.snapshot).snapshot;
+  }
+
   private fromFile(file: TextFileSnapshot): TodayReadResult {
     const document = parseToday(file.text, { file: this.path });
     const tasks: TodayTaskView[] = document.nodes.flatMap((node, index) => {
@@ -223,6 +296,7 @@ export class TodayRepository {
         content: node.content,
         details: readTodayTaskDetails(document.nodes, index),
         completed: node.completed,
+        ...(node.projectName != null ? { projectName: node.projectName } : {}),
       };
       if (node.addedDate !== undefined) task.addedDate = node.addedDate;
       if (node.completedAt !== undefined) task.completedAt = node.completedAt;

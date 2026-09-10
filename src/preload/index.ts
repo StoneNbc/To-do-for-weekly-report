@@ -17,10 +17,22 @@ const api: ElectronAPI = {
   healthCheck: () => ipcRenderer.invoke(IPC.healthCheck),
   today: {
     get: () => ipcRenderer.invoke(IPC.todayGet),
-    add: (content) => ipcRenderer.invoke(IPC.todayAdd, content),
+    add: (content, projectName) => ipcRenderer.invoke(IPC.todayAdd, content, projectName),
+    moveMany: (input) => ipcRenderer.invoke(IPC.todayMoveMany, input),
     toggle: (locator) => ipcRenderer.invoke(IPC.todayToggle, locator),
     edit: (input) => ipcRenderer.invoke(IPC.todayEdit, input),
     delete: (locator) => ipcRenderer.invoke(IPC.todayDelete, locator),
+  },
+  projects: {
+    get: () => ipcRenderer.invoke(IPC.projectsGet),
+    create: (input) => ipcRenderer.invoke(IPC.projectsCreate, input),
+    update: (input) => ipcRenderer.invoke(IPC.projectsUpdate, input),
+    reorder: (input) => ipcRenderer.invoke(IPC.projectsReorder, input),
+    deleteEmpty: (input) => ipcRenderer.invoke(IPC.projectsDeleteEmpty, input),
+    previewRename: (input) => ipcRenderer.invoke(IPC.projectsPreviewRename, input),
+    rename: (token) => ipcRenderer.invoke(IPC.projectsRename, token),
+    retryRecovery: () => ipcRenderer.invoke(IPC.projectsRetryRecovery),
+    openRecoveryFolder: () => ipcRenderer.invoke(IPC.projectsOpenRecoveryFolder),
   },
   history: {
     getView: (date) => ipcRenderer.invoke(IPC.historyGetView, date),
@@ -36,6 +48,7 @@ const api: ElectronAPI = {
     get: (input) => ipcRenderer.invoke(IPC.weekGet, input),
   },
   report: {
+    preview: (input) => ipcRenderer.invoke(IPC.reportPreview, input),
     export: (input) => ipcRenderer.invoke(IPC.reportExport, input),
     generate: (input) => ipcRenderer.invoke(IPC.reportGenerate, input),
     cancel: (requestId) => ipcRenderer.invoke(IPC.reportCancel, requestId),
@@ -52,6 +65,8 @@ const api: ElectronAPI = {
     getNoteDockState: () => ipcRenderer.invoke(IPC.windowGetNoteDockState),
     setNoteInteractionState: (input) =>
       ipcRenderer.invoke(IPC.windowSetNoteInteractionState, input),
+    openProjectCreate: () => ipcRenderer.invoke(IPC.windowOpenProjectCreate),
+    closeProjectCreate: () => ipcRenderer.invoke(IPC.windowCloseProjectCreate),
     openSettings: () => ipcRenderer.invoke(IPC.windowOpenSettings),
     setSettingsDirty: (dirty) => ipcRenderer.invoke(IPC.windowSetSettingsDirty, dirty),
     discardSettingsChangesAndClose: () =>
@@ -81,6 +96,11 @@ const api: ElectronAPI = {
     confirmConsent: () => ipcRenderer.invoke(IPC.reportSettingsConfirmConsent),
   },
   events: {
+    onProjectCreated: (listener) => {
+      const handler = (_event: Electron.IpcRendererEvent, name: string) => listener(name);
+      ipcRenderer.on(IPC.projectCreated, handler);
+      return () => ipcRenderer.removeListener(IPC.projectCreated, handler);
+    },
     onDataChanged: (listener) => {
       const handler = (_event: Electron.IpcRendererEvent, payload: DataChangedEvent) =>
         listener(payload);

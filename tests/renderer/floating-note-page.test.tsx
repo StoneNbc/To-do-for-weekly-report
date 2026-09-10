@@ -454,4 +454,80 @@ describe('FloatingNotePage', () => {
     expect(screen.getByRole('button', { name: '查看后一天' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '打开便利贴菜单' })).toBeInTheDocument();
   });
+  it('creates a project, selects it, and adds a task with its project name', async () => {
+    const controller = renderPage();
+    const add = vi.spyOn(controller.api.today, 'add');
+    await screen.findByRole('textbox', { name: '添加待办' });
+    const open = vi.spyOn(controller.api.window, 'openProjectCreate');
+    fireEvent.click(screen.getByRole('button', { name: '新建项目' }));
+    await waitFor(() => expect(open).toHaveBeenCalledOnce());
+    expect(screen.queryByRole('textbox', { name: '新项目名称' })).toBeNull();
+    const snapshot = await controller.api.projects.get();
+    if (!snapshot.ok) throw new Error('snapshot unavailable');
+    await act(async () => {
+      await controller.api.projects.create({
+        name: '客户交付',
+        expectedRevision: snapshot.data.revision,
+      });
+    });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '项目管理' })).toBeNull());
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: '选择项目' })).toHaveValue(
+        JSON.stringify(['客户交付']),
+      ),
+    );
+    const input = screen.getByRole('textbox', { name: '添加待办' });
+    expect(input).toHaveFocus();
+    fireEvent.change(input, { target: { value: '准备验收资料' } });
+    fireEvent.submit(input.closest('form')!);
+    await waitFor(() => expect(add).toHaveBeenCalledWith('准备验收资料', '客户交付'));
+    expect(await screen.findByText('准备验收资料')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: '选择项目' }), {
+      target: { value: 'none' },
+    });
+    await waitFor(() => expect(screen.queryByText('准备验收资料')).toBeNull());
+  });
+  it('keeps zero-task active projects and lets their plus button select and focus without losing input', async () => {
+    const controller = createMockElectronAPI();
+    let snapshot = await controller.api.projects.get();
+    if (!snapshot.ok) throw new Error('snapshot unavailable');
+    await controller.api.projects.create({
+      name: '项目2',
+      expectedRevision: snapshot.data.revision,
+    });
+    snapshot = await controller.api.projects.get();
+    if (!snapshot.ok) throw new Error('snapshot unavailable');
+    await controller.api.projects.create({
+      name: '已归档空项目',
+      expectedRevision: snapshot.data.revision,
+    });
+    snapshot = await controller.api.projects.get();
+    if (!snapshot.ok) throw new Error('snapshot unavailable');
+    await controller.api.projects.update({
+      name: '已归档空项目',
+      status: 'archived',
+      expectedRevision: snapshot.data.revision,
+    });
+    render(
+      <ElectronAPIProvider api={controller.api}>
+        <FloatingNotePage />
+      </ElectronAPIProvider>,
+    );
+    const plus = await screen.findByRole('button', { name: '添加待办到：项目2' });
+    const list = screen.getByRole('list', { name: '待完成事项' });
+    expect(within(list).getByRole('button', { name: /项目2.*0/ })).toBeInTheDocument();
+    expect(within(list).queryByText('已归档空项目')).toBeNull();
+    expect(screen.queryByRole('button', { name: '整理' })).toBeNull();
+    const input = screen.getByRole('textbox', { name: '添加待办' });
+    fireEvent.change(input, { target: { value: '未提交的标题' } });
+    fireEvent.click(plus);
+    expect(input).toHaveFocus();
+    expect(input).toHaveValue('未提交的标题');
+    expect(screen.getByRole('combobox', { name: '选择项目' })).toHaveValue(
+      JSON.stringify(['项目2']),
+    );
+    const add = vi.spyOn(controller.api.today, 'add');
+    fireEvent.submit(input.closest('form')!);
+    await waitFor(() => expect(add).toHaveBeenCalledWith('未提交的标题', '项目2'));
+  });
 });

@@ -1,5 +1,7 @@
 # 多 Agent 并行开发策略 — 悬浮便利贴 & 一键周报
 
+> 适用范围：本文件保留 v1.0 初始化阶段的并行计划，不代表当前项目状态或默认执行方式。只有用户明确要求并行时才查阅相关章节。新任务先读[根目录入口](../AGENTS.md)和[当前状态](./PROJECT_STATE.md)，无需全文预读本策略、PRD 或设计文档。
+
 | 项目 | 内容 |
 | --- | --- |
 | 策略版本 | v1.0 |
@@ -7,7 +9,7 @@
 | 对应 PRD | 《产品需求文档-悬浮便利贴与一键周报-v3.1》 |
 | 对应开发设计 | 《开发设计文档-悬浮便利贴与一键周报-v1.0》 |
 | 推荐并发规模 | 1 个集成协调 Agent + 3 个执行 Agent |
-| 当前项目状态 | 只有需求与设计文档，尚未初始化 Git 和工程骨架 |
+| 策略编写时状态（历史） | 只有需求与设计文档，尚未初始化 Git 和工程骨架 |
 
 ---
 
@@ -733,11 +735,9 @@ A0 每次分派任务时使用以下格式，禁止只说“把后端做完”�
 - Base commit: <SHA>
 - Worktree: <absolute path>
 
-## 必读文档
-- 产品需求文档-悬浮便利贴与一键周报-v3.1.md
-- 开发设计文档-悬浮便利贴与一键周报-v1.0.md
-- 多Agent并行开发策略-v1.0.md
-- AGENTS.md
+## 接手资料
+- 根目录 AGENTS.md 和 documents/PROJECT_STATE.md（已读不重复）。
+- 本任务涉及的 PRD、设计及并行策略章节，由协调者给出具体章节或关键词，按需查阅。
 
 ## 本任务目标
 实现 TaskService、WeeklyService 和 ArchiveService，并提供完整集成测试。
@@ -1259,7 +1259,7 @@ Agent 的速度可能远快于人工团队，因此使用“事件驱动同步�
 ### 26.1 A1 启动提示词
 
 ```text
-你是本项目的 A1 文本与业务内核 Agent。先完整阅读 PRD v3.1、开发设计文档 v1.0、多 Agent 并行开发策略和 AGENTS.md。你只能修改 Task Card 中列出的 core/parser/repository/service/agent 与对应测试文件，不得修改 package、共享契约、IPC、Preload 或 Renderer。
+你是本项目的 A1 文本与业务内核 Agent。先读根目录 AGENTS.md 与 documents/PROJECT_STATE.md，再按 Task Card 查阅相关代码和文档章节，已读不重复。你只能修改 Task Card 中列出的 core/parser/repository/service/agent 与对应测试文件，不得修改 package、共享契约、IPC、Preload 或 Renderer。
 
 业务硬约束：TXT 是事实来源；允许完全相同的重复任务；禁止按正文去重；未知行必须原样保留；任务定位使用 revision + line；归档先写周文件再写 today；不实现严格幂等。
 
@@ -1269,7 +1269,7 @@ Agent 的速度可能远快于人工团队，因此使用“事件驱动同步�
 ### 26.2 A2 启动提示词
 
 ```text
-你是本项目的 A2 React 界面 Agent。先完整阅读 PRD v3.1、开发设计文档 v1.0、多 Agent 并行开发策略和 AGENTS.md。你只能修改 src/renderer 与 tests/renderer，不得直接访问文件系统、import Main 代码或修改 ElectronAPI 契约。
+你是本项目的 A2 React 界面 Agent。先读根目录 AGENTS.md 与 documents/PROJECT_STATE.md，再按 Task Card 查阅相关代码和文档章节，已读不重复。你只能修改 src/renderer 与 tests/renderer，不得直接访问文件系统、import Main 代码或修改 ElectronAPI 契约。
 
 所有数据操作必须通过类型化 ElectronAPI。真实平台未完成时使用 satisfies ElectronAPI 的 Mock。界面必须支持重复任务的独立操作、历史补录、FILE_CHANGED 刷新、保存状态、键盘操作和无障碍标签。
 
@@ -1279,7 +1279,7 @@ Agent 的速度可能远快于人工团队，因此使用“事件驱动同步�
 ### 26.3 A3 启动提示词
 
 ```text
-你是本项目的 A3 Electron 平台 Agent。先完整阅读 PRD v3.1、开发设计文档 v1.0、多 Agent 并行开发策略和 AGENTS.md。你负责 Electron 生命周期、窗口、托盘、Preload 实现、IPC Handler、Watcher、调度、导出对话框、E2E 与打包，只能修改 Task Card 授权的 platform 文件。
+你是本项目的 A3 Electron 平台 Agent。先读根目录 AGENTS.md 与 documents/PROJECT_STATE.md，再按 Task Card 查阅相关代码和文档章节，已读不重复。你负责 Electron 生命周期、窗口、托盘、Preload 实现、IPC Handler、Watcher、调度、导出对话框、E2E 与打包，只能修改 Task Card 授权的 platform 文件。
 
 安全硬约束：contextIsolation 开启；nodeIntegration 关闭；不暴露通用 ipcRenderer；IPC 输入必须校验；Renderer 不能提交任意路径；导出只写保存对话框返回位置；不创建 reports 副本；默认无网络请求。
 
@@ -1289,7 +1289,7 @@ Agent 的速度可能远快于人工团队，因此使用“事件驱动同步�
 ### 26.4 A0 启动提示词
 
 ```text
-你是本项目的 A0 集成协调 Agent。你的任务是建立和维护可验证的集成基线，而不是与执行 Agent 抢功能。先检查当前仓库、PRD、开发设计和并行策略，完成 Wave 0 工程引导与契约冻结，然后为 A1/A2/A3 创建无重叠 Task Card 和独立 Worktree。
+你是本项目的 A0 集成协调 Agent。你的任务是建立和维护可验证的集成基线，而不是与执行 Agent 抢功能。先读根目录 AGENTS.md 与 documents/PROJECT_STATE.md，核实当前仓库并按需查阅相关章节；不要重做已经完成的 Wave 0。仅在用户明确要求的并行范围内为 A1/A2/A3 创建无重叠 Task Card 和独立 Worktree。
 
 你持有 package/lockfile、构建配置、共享领域类型、IPC 通道、schema 和 ElectronAPI 类型。每个分支合并前审查越权修改和测试证据，按策略规定顺序合并，并在集成分支重新运行质量门禁。没有直接证据的验收项不得标记完成。
 ```

@@ -1,3 +1,4 @@
+import { PROJECT_CONSENT_VERSION } from '../../shared/constants';
 import path from 'node:path';
 import type {
   LlmConnectionTestInput,
@@ -82,7 +83,7 @@ export class ReportSettingsService {
       llm: { ...config.llm },
       hasApiKey: credential !== null,
       apiKeyMask: credential ? maskApiKey(credential.apiKey) : null,
-      remoteConsentConfirmed: config.remote_consent_confirmed,
+      remoteConsentConfirmed: this.isRemoteConsentConfirmed(),
     };
   }
 
@@ -112,8 +113,19 @@ export class ReportSettingsService {
       this.#remoteTemplates.save(patch.remoteTemplate),
       this.#prompts.save(patch.prompt),
     ]);
+    const previous = this.#config.get();
+    const consentChanged =
+      previous.llm.provider !== llm.provider ||
+      getLlmCredentialOrigin(previous.llm.baseUrl, previous.llm.allowInsecureHttp) !== origin;
     // 受控文本写入成功后才发布路径和生成模式；跨文件完整事务仍需单独的版本化提交方案。
     await this.#config.commit({
+      ...(consentChanged
+        ? {
+            remote_consent_confirmed: false,
+            remote_consent_origin: null,
+            remote_consent_version: 0,
+          }
+        : {}),
       agent: patch.mode === 'remote-llm' ? 'openai-compatible' : 'template',
       template_path: path.basename(this.#recordTemplates.getControlledPath()),
       remote_template_path: path.basename(this.#remoteTemplates.getControlledPath()),
@@ -123,8 +135,26 @@ export class ReportSettingsService {
     return this.get();
   }
 
+  isRemoteConsentConfirmed(): boolean {
+    const config = this.#config.get();
+    return (
+      config.remote_consent_confirmed &&
+      config.remote_consent_version === PROJECT_CONSENT_VERSION &&
+      config.remote_consent_origin ===
+        getLlmCredentialOrigin(config.llm.baseUrl, config.llm.allowInsecureHttp)
+    );
+  }
+
   async confirmRemoteConsent(): Promise<ReportSettingsSnapshot> {
-    await this.#config.commit({ remote_consent_confirmed: true });
+    const current = this.#config.get();
+    await this.#config.commit({
+      remote_consent_confirmed: true,
+      remote_consent_origin: getLlmCredentialOrigin(
+        current.llm.baseUrl,
+        current.llm.allowInsecureHttp,
+      ),
+      remote_consent_version: PROJECT_CONSENT_VERSION,
+    });
     return this.get();
   }
 

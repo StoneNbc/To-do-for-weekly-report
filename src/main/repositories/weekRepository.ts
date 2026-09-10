@@ -1,3 +1,6 @@
+import { assertProjectWritable, replaceProjectField } from '../parsers/projectField';
+import { upgradeProjectFormat } from './projectFormatUpgrade';
+import { normalizeProjectName } from '../../shared/projects';
 import { join } from 'node:path';
 import type {
   DayRecordSnapshot,
@@ -48,6 +51,7 @@ export interface WeekReadResult {
 }
 
 export interface HistoricalTaskInput {
+  projectName?: string | null | undefined;
   content: string;
   details?: string;
   addedDate?: string;
@@ -55,6 +59,7 @@ export interface HistoricalTaskInput {
 }
 
 export interface ArchivedTaskInput {
+  projectName?: string | null | undefined;
   content: string;
   details?: string;
   addedDate?: string;
@@ -102,6 +107,7 @@ export class WeekRepository {
 
   async getWeekSnapshot(isoYear: number, isoWeek: number): Promise<WeeklySnapshot> {
     const read = await this.readWeek(isoYear, isoWeek);
+    assertProjectWritable(read.document);
     const groupsByDate = new Map<string, WeeklyDayGroup>();
     for (const node of read.document.nodes) {
       if (node.kind !== 'archivedTask') continue;
@@ -110,9 +116,10 @@ export class WeekRepository {
         group = { date: node.date, weekdayLabel: formatChineseWeekday(node.date), tasks: [] };
         groupsByDate.set(node.date, group);
       }
-      const task: { date: string; content: string; time?: string } = {
+      const task: { date: string; content: string; time?: string; projectName?: string | null } = {
         date: node.date,
         content: node.content,
+        ...(node.projectName != null ? { projectName: node.projectName } : {}),
       };
       if (node.completedAt !== undefined) task.time = node.completedAt;
       // 按节点出现顺序追加，允许正文和时间完全相同的重复任务。
@@ -146,8 +153,13 @@ export class WeekRepository {
     const { isoYear, isoWeek } = getIsoWeekInfo(date);
     const path = this.getPath(isoYear, isoWeek);
     const initial = serializeWeek(createEmptyWeekDocument(isoYear, isoWeek));
-    const result = await this.store.updateOrCreate(path, initial, (file) => {
+    const result = await this.store.updateOrCreate(path, initial, async (file) => {
       const document = parseWeek(file.text, { isoYear, isoWeek, file: path });
+      assertProjectWritable(document);
+      if (input.projectName != null) {
+        normalizeProjectName(input.projectName);
+        await upgradeProjectFormat(document, file);
+      }
       const insertedLine = insertHistoricalTask(
         document,
         date,
@@ -155,6 +167,7 @@ export class WeekRepository {
         details,
         input.addedDate,
         input.completedAt,
+        input.projectName,
       );
       return { text: serializeWeek(document), result: insertedLine };
     });
@@ -173,6 +186,9 @@ export class WeekRepository {
     const normalized = tasks.map((task) => {
       const value: ArchivedTaskInput = {
         content: assertValidTaskContent(task.content),
+        ...(task.projectName != null
+          ? { projectName: normalizeProjectName(task.projectName) }
+          : {}),
         details: assertValidTaskDetails(task.details ?? ''),
       };
       if (task.addedDate !== undefined) value.addedDate = assertValidIsoDate(task.addedDate);
@@ -186,8 +202,11 @@ export class WeekRepository {
     const { isoYear, isoWeek } = getIsoWeekInfo(date);
     const path = this.getPath(isoYear, isoWeek);
     const initial = serializeWeek(createEmptyWeekDocument(isoYear, isoWeek));
-    const result = await this.store.updateOrCreate(path, initial, (file) => {
+    const result = await this.store.updateOrCreate(path, initial, async (file) => {
       const document = parseWeek(file.text, { isoYear, isoWeek, file: path });
+      assertProjectWritable(document);
+      if (normalized.some((task) => task.projectName != null))
+        await upgradeProjectFormat(document, file);
       // 一批归档在同一个文件事务内按原顺序追加，不做正文去重。
       for (const task of normalized) {
         insertHistoricalTask(
@@ -197,6 +216,7 @@ export class WeekRepository {
           task.details ?? '',
           task.addedDate,
           task.completedAt,
+          task.projectName,
         );
       }
       return { text: serializeWeek(document), result: undefined };
@@ -220,23 +240,42 @@ export class WeekRepository {
     if (input.completedAt !== undefined) assertValidLocalTime(input.completedAt);
     const { isoYear, isoWeek } = getIsoWeekInfo(date);
     const path = this.getPath(isoYear, isoWeek);
-    const result = await this.store.update(path, locator.revision, (file) => {
+    const result = await this.store.update(path, locator.revision, async (file) => {
       const document = parseWeek(file.text, { isoYear, isoWeek, file: path });
+      assertProjectWritable(document);
       const node = document.nodes[locator.line];
       // 同时核对行类型和归属日期，防止旧 locator 跨日期段误改其他任务。
       if (!node || node.kind !== 'archivedTask' || node.date !== date) {
         throw new TaskLineNotFoundError(locator.line);
       }
+      const projectOnly =
+        input.projectName !== undefined &&
+        input.content === node.content &&
+        input.completedAt === node.completedAt;
+      if (input.projectName != null) {
+        normalizeProjectName(input.projectName);
+        await upgradeProjectFormat(document, file);
+      }
+      if (input.projectName !== undefined) node.projectName = input.projectName;
       node.content = content;
       if (input.completedAt === undefined) delete node.completedAt;
       else node.completedAt = input.completedAt;
-      node.raw = formatArchivedTask(content, node.addedDate, input.completedAt);
-      if (details !== undefined) {
-        const blockEnd = getWeekTaskBlockEnd(document.nodes, locator.line);
+      node.raw =
+        projectOnly && document.projectFormat
+          ? replaceProjectField(node.raw, node.projectName ?? null)
+          : formatArchivedTask(
+              content,
+              node.addedDate,
+              input.completedAt,
+              node.projectName,
+              document.projectFormat,
+            );
+      if (details !== undefined && details !== readWeekTaskDetails(document.nodes, node.line)) {
+        const blockEnd = getWeekTaskBlockEnd(document.nodes, node.line);
         document.nodes.splice(
-          locator.line + 1,
-          blockEnd - locator.line - 1,
-          ...createWeekTaskDetailNodes(details, locator.line + 1),
+          node.line + 1,
+          blockEnd - node.line - 1,
+          ...createWeekTaskDetailNodes(details, node.line + 1),
         );
         reindexWeekNodes(document.nodes);
       }
@@ -253,8 +292,9 @@ export class WeekRepository {
     assertValidIsoDate(date);
     const { isoYear, isoWeek } = getIsoWeekInfo(date);
     const path = this.getPath(isoYear, isoWeek);
-    const result = await this.store.update(path, locator.revision, (file) => {
+    const result = await this.store.update(path, locator.revision, async (file) => {
       const document = parseWeek(file.text, { isoYear, isoWeek, file: path });
+      assertProjectWritable(document);
       const node = document.nodes[locator.line];
       if (!node || node.kind !== 'archivedTask' || node.date !== date) {
         throw new TaskLineNotFoundError(locator.line);
@@ -281,6 +321,7 @@ export class WeekRepository {
         locator: { line: node.line, revision },
         date,
         content: node.content,
+        ...(node.projectName != null ? { projectName: node.projectName } : {}),
         details: readWeekTaskDetails(document.nodes, index),
       };
       if (node.addedDate !== undefined) task.addedDate = node.addedDate;
@@ -304,10 +345,11 @@ const insertHistoricalTask = (
   details: string,
   addedDate?: string,
   completedAt?: string,
+  projectName?: string | null,
 ): number => {
   const newNode: ArchivedTaskNode = {
     kind: 'archivedTask',
-    raw: formatArchivedTask(content, addedDate, completedAt),
+    raw: formatArchivedTask(content, addedDate, completedAt, projectName, document.projectFormat),
     line: 0,
     date,
     content,

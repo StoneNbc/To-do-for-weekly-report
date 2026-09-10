@@ -27,7 +27,9 @@ const electronMocks = vi.hoisted(() => {
     }
   }
 
+  let nextContentsId = 1;
   class MockWebContents extends MockEmitter {
+    readonly id = nextContentsId++;
     readonly sent: Array<{ channel: string; payload: unknown }> = [];
 
     setWindowOpenHandler(): void {}
@@ -391,6 +393,35 @@ describe('WindowManager note auto-hide', () => {
     manager.applySettings({ ...baseSettings, alwaysOnTop: false, showOnFullScreen: true });
     expect(window.alwaysOnTopCalls.at(-1)).toEqual([false, 'normal']);
     expect(window.visibleOnAllWorkspacesCalls.at(-1)).toEqual([false, undefined]);
+    manager.closeAll();
+  });
+  it('reuses the creation window and prevents auto-hide while it is open', async () => {
+    const manager = new WindowManager({
+      config: makeConfig() as unknown as ConfigService,
+      logger: makeLogger(),
+      preloadPath: '/preload.cjs',
+      rendererHtmlPath: '/index.html',
+      isQuitting: () => false,
+    });
+    const note = (await manager.createFloatingNote()) as unknown as InstanceType<
+      typeof electronMocks.MockBrowserWindow
+    >;
+    const creation = (await manager.openProjectCreate()) as unknown as InstanceType<
+      typeof electronMocks.MockBrowserWindow
+    >;
+    expect(await manager.openProjectCreate()).toBe(creation);
+    expect(electronMocks.MockBrowserWindow.instances).toHaveLength(2);
+    manager.setNoteInteractionState({ pointerInside: false, autoHideBlocked: false });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(manager.getNoteDockState().phase).toBe('docked-visible');
+    manager.notifyProjectCreated('项目2', creation.webContents.id);
+    expect(note.webContents.sent).toContainEqual({ channel: 'project:created', payload: '项目2' });
+    const sentCount = note.webContents.sent.length;
+    manager.notifyProjectCreated('不应切换', note.webContents.id);
+    expect(note.webContents.sent).toHaveLength(sentCount);
+    creation.destroyed = true;
+    creation.emit('closed');
+    expect(await manager.openProjectCreate()).not.toBe(creation);
     manager.closeAll();
   });
 });

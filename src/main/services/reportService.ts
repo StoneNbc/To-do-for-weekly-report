@@ -1,3 +1,12 @@
+import {
+  matchesProject,
+  type ProjectReportOptions,
+  type PendingReportTask,
+  type ReportSourcePreview,
+} from '../../shared/projects';
+import { FileChangedError } from '../repositories/textFileStore';
+import type { BusinessCoordinator } from './businessCoordinator';
+import { renderProjectRecords } from '../agents/reportTemplate';
 import { randomUUID } from 'node:crypto';
 import { open, mkdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -40,7 +49,22 @@ export interface ReportShellAdapter {
   showItemInFolder(path: string): void;
 }
 
+interface PreparedReport {
+  tasks: WeeklyTask[];
+  pendingTasks: PendingReportTask[];
+  context: ReportContext;
+  signature: string;
+  settingsKey: string;
+  agent: ReportAgent;
+  options: ProjectReportOptions;
+  expires: number;
+}
+
 export interface ReportServiceOptions {
+  coordinator?: BusinessCoordinator;
+  reconcile?: () => Promise<unknown>;
+  settingsKey?: () => Promise<string>;
+  destinationDescription?: () => string;
   weeklyService: WeeklyReportSource;
   pendingTaskSource?: PendingTaskSource;
   agentProvider: ReportAgentProvider;
@@ -76,6 +100,7 @@ export class ReportGenerationError extends Error {
  */
 export class ReportService {
   readonly #options: ReportServiceOptions;
+  #previews = new Map<string, PreparedReport>();
   #lastExportedPath: string | null = null;
   #writeQueue: Promise<void> = Promise.resolve();
   #drafts = new Map<
@@ -109,60 +134,131 @@ export class ReportService {
     }
   }
 
+  private async collect(
+    isoYear: number,
+    isoWeek: number,
+    options: ProjectReportOptions,
+  ): Promise<Omit<PreparedReport, 'agent' | 'expires'>> {
+    const read = async () => {
+      await this.#options.reconcile?.();
+      const context: ReportContext = {
+        isoYear,
+        isoWeek,
+        weekStart: getDateFromIsoWeek(isoYear, isoWeek, 1),
+        weekEnd: getDateFromIsoWeek(isoYear, isoWeek, 7),
+      };
+      let snapshot: WeeklySnapshot;
+      try {
+        snapshot = await this.#options.weeklyService.getWeek(isoYear, isoWeek);
+      } catch (cause) {
+        throw new ReportGenerationError('无法读取所选周的数据，请稍后重试', { cause });
+      }
+      const tasks = snapshot.groups
+        .flatMap((group) => group.tasks)
+        .filter((task) => matchesProject(task.projectName, options.projectFilter))
+        .map((task) => ({
+          date: task.date,
+          content: task.content,
+          ...(task.time !== undefined ? { time: task.time } : {}),
+          ...(task.projectName != null ? { projectName: task.projectName } : {}),
+        }));
+      let pendingTasks: PendingReportTask[] = [];
+      if (options.includePendingCandidates) {
+        const today = await this.#options.pendingTaskSource?.getToday();
+        if (today?.warnings.some((warning) => warning.code === 'INVALID_PROJECT'))
+          throw new ReportGenerationError('待办项目字段存在格式问题，请修复后生成');
+        pendingTasks =
+          today?.tasks
+            .filter(
+              (task) => !task.completed && matchesProject(task.projectName, options.projectFilter),
+            )
+            .map((task) => ({ content: task.content, projectName: task.projectName ?? null })) ??
+          [];
+      }
+      const settingsKey = (await this.#options.settingsKey?.()) ?? '';
+      const signature = JSON.stringify({
+        context,
+        tasks,
+        pendingTasks,
+        projectFilter: options.projectFilter ?? { kind: 'all' },
+        groupBy: options.groupBy ?? 'date',
+        includePendingCandidates: options.includePendingCandidates ?? false,
+      });
+      return { context, tasks, pendingTasks, signature, settingsKey, options };
+    };
+    return this.#options.coordinator ? this.#options.coordinator.run(read) : read();
+  }
+
+  async preview(
+    isoYear: number,
+    isoWeek: number,
+    options: ProjectReportOptions = {},
+  ): Promise<ReportSourcePreview> {
+    for (const [token, prepared] of this.#previews)
+      if (prepared.expires < Date.now()) this.#previews.delete(token);
+    while (this.#previews.size >= 5) this.#previews.delete(this.#previews.keys().next().value!);
+    const source = await this.collect(isoYear, isoWeek, options);
+    const agent = await this.#options.agentProvider.getAgent();
+    if (agent.configurationKey !== undefined && agent.configurationKey !== source.settingsKey)
+      throw new FileChangedError('report-settings');
+    const token = randomUUID();
+    const pendingTasks = source.pendingTasks;
+    const text =
+      agent.previewReport?.(source.tasks, source.context, {
+        pendingTasks,
+        groupBy: options.groupBy,
+      }) ?? renderProjectRecords(source.tasks, source.context);
+    this.#previews.set(token, { ...source, agent, expires: Date.now() + 5 * 60_000 });
+    return {
+      token,
+      text:
+        (agent.name === 'openai-compatible'
+          ? `${this.#options.destinationDescription?.() ?? '远程生成素材'}\n\n`
+          : '本地生成预览（不联网）\n\n') + text,
+      taskCount: source.tasks.length,
+      pendingCount: pendingTasks.length,
+    };
+  }
+
   async generateDraft(
     isoYear: number,
     isoWeek: number,
     signal?: AbortSignal,
+    options: ProjectReportOptions = {},
   ): Promise<ReportDraft> {
-    // 在打开系统对话框前验证，包括拒绝目标年份并不存在的 W53。
-    const weekStart = getDateFromIsoWeek(isoYear, isoWeek, 1);
-    const weekEnd = getDateFromIsoWeek(isoYear, isoWeek, 7);
-    let snapshot: WeeklySnapshot;
-    try {
-      snapshot = await this.#options.weeklyService.getWeek(isoYear, isoWeek);
-    } catch (cause) {
-      this.#options.logger.error('Weekly report source failed', { isoYear, isoWeek, cause });
-      throw new ReportGenerationError('无法读取所选周的数据，请稍后重试', { cause });
-    }
-    const tasks = snapshot.groups.flatMap((group) => group.tasks);
-    const context: ReportContext = { isoYear, isoWeek, weekStart, weekEnd };
-
-    let text: string;
-    let mode: ReportGenerationMode;
-    try {
-      const agent = await this.#options.agentProvider.getAgent();
-      mode = agent.name === 'openai-compatible' ? 'remote-llm' : 'local-template';
-      if (!(await agent.isAvailable())) {
-        throw new ReportGenerationError(`周报生成器 ${agent.name} 当前不可用`);
-      }
+    const source = await this.collect(isoYear, isoWeek, options);
+    const prepared = options.previewToken ? this.#previews.get(options.previewToken) : undefined;
+    if (options.previewToken) {
+      this.#previews.delete(options.previewToken);
       if (
-        agent.name === 'openai-compatible' &&
-        this.#options.isRemoteConsentConfirmed?.() !== true
-      ) {
-        throw new ReportGenerationError('请先确认远程生成的数据发送说明');
-      }
-      if (mode === 'remote-llm') {
-        let pendingTasks: string[] = [];
-        try {
-          const today = await this.#options.pendingTaskSource?.getToday();
-          pendingTasks =
-            today?.tasks.filter((task) => !task.completed).map((task) => task.content) ?? [];
-        } catch (cause) {
-          this.#options.logger.warn('Pending tasks could not be added to report context', { cause });
-        }
-        text = await agent.generateReport(tasks as WeeklyTask[], context, {
-          ...(signal ? { signal } : {}),
-          pendingTasks,
-        });
-      } else {
-        text = signal
-          ? await agent.generateReport(tasks as WeeklyTask[], context, { signal })
-          : await agent.generateReport(tasks as WeeklyTask[], context);
-      }
-    } catch (cause) {
-      this.#options.logger.error('Report agent failed', { isoYear, isoWeek, cause });
-      throw cause;
+        !prepared ||
+        prepared.expires < Date.now() ||
+        prepared.signature !== source.signature ||
+        prepared.settingsKey !== source.settingsKey
+      )
+        throw new FileChangedError('report-source');
     }
+    const { tasks, context, pendingTasks } = prepared ?? source;
+    const agent = prepared?.agent ?? (await this.#options.agentProvider.getAgent());
+    if (agent.configurationKey !== undefined && agent.configurationKey !== source.settingsKey)
+      throw new FileChangedError('report-settings');
+    const mode: ReportGenerationMode =
+      agent.name === 'openai-compatible' ? 'remote-llm' : 'local-template';
+    if (signal?.aborted) throw new LlmError('CANCELLED', '生成已取消');
+    if (!(await agent.isAvailable()))
+      throw new ReportGenerationError(`周报生成器 ${agent.name} 当前不可用`);
+    if (this.#options.settingsKey && (await this.#options.settingsKey()) !== source.settingsKey)
+      throw new FileChangedError('report-settings');
+    if (mode === 'remote-llm' && this.#options.isRemoteConsentConfirmed?.() !== true)
+      throw new ReportGenerationError('请先确认远程生成的数据发送说明');
+    const generationOptions = {
+      ...(signal ? { signal } : {}),
+      ...(options.groupBy ? { groupBy: options.groupBy } : {}),
+      ...(mode === 'remote-llm' ? { pendingTasks } : {}),
+    };
+    const text = Object.keys(generationOptions).length
+      ? await agent.generateReport(tasks, context, generationOptions)
+      : await agent.generateReport(tasks, context);
 
     this.#pruneDrafts();
     const draft: ReportDraft = {

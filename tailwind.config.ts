@@ -1,4 +1,5 @@
 import type { Config } from 'tailwindcss';
+import { DEFAULT_NOTE_COLOR } from './src/shared/constants';
 
 // content 仅扫描 Renderer，Main/Preload 不应依赖任何 UI 样式。
 export default {
@@ -6,7 +7,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        note: '#FFF8E7',
+        note: DEFAULT_NOTE_COLOR,
       },
     },
   },

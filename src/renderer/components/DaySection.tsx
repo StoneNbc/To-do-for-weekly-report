@@ -24,7 +24,12 @@ export function DaySection({ group }: { group: WeeklyDayGroup }) {
             <span className="text-emerald-600" aria-hidden="true">
               ✓
             </span>
-            <span className="min-w-0 flex-1 break-words">{task.content}</span>
+            <span className="min-w-0 flex-1 break-words">
+              {task.content}
+              {task.projectName && (
+                <span className="ml-2 text-xs text-stone-400">{task.projectName}</span>
+              )}
+            </span>
             {task.time ? (
               <time className="text-xs tabular-nums text-stone-400">{task.time}</time>
             ) : null}

@@ -1,14 +1,22 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 /** 今日任务输入；只有 Main 确认保存成功后才清空草稿。 */
 export function AddTaskInput({
   disabled = false,
+  placeholder = '添加待办…',
+  focusSignal = 0,
   onAdd,
 }: {
   disabled?: boolean;
+  placeholder?: string;
+  focusSignal?: number;
   onAdd: (content: string) => Promise<boolean> | boolean;
 }) {
   const [value, setValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (focusSignal > 0) inputRef.current?.focus();
+  }, [focusSignal]);
   const [error, setError] = useState<string | null>(null);
 
   const submit = async (event: FormEvent) => {
@@ -23,26 +31,21 @@ export function AddTaskInput({
   };
 
   return (
-    <form
-      className="no-drag border-t border-amber-900/10 pt-3"
-      onSubmit={(event) => void submit(event)}
-    >
-      <div className="flex items-center gap-2 rounded-xl bg-white/55 p-1.5 shadow-sm ring-1 ring-amber-900/10 focus-within:ring-2 focus-within:ring-amber-600">
-        <span className="pl-1 text-lg text-amber-800" aria-hidden="true">
-          +
-        </span>
+    <form className="task-composer-form no-drag" onSubmit={(event) => void submit(event)}>
+      <div className="task-composer-field flex items-center gap-2">
         <input
+          ref={inputRef}
           aria-describedby={error ? 'add-task-error' : undefined}
-        aria-label="添加待办"
+          aria-label="添加待办"
           className="min-w-0 flex-1 bg-transparent px-1 py-1.5 text-sm outline-none placeholder:text-stone-400"
           disabled={disabled}
           onChange={(event) => setValue(event.target.value)}
-          placeholder="添加待办…"
+          placeholder={placeholder}
           value={value}
         />
         <button
           aria-label="添加任务"
-          className="rounded-lg bg-amber-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 disabled:opacity-50"
+          className="composer-submit rounded-lg px-3 py-1.5 text-xs font-medium"
           disabled={disabled}
           type="submit"
         >

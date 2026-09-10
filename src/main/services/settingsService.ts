@@ -85,6 +85,7 @@ export class SettingsService {
 
   #toSnapshot(config: AppConfig): SettingsSnapshot {
     return {
+      selectedProject: config.selected_project,
       noteColor: config.note_color,
       noteOpacity: config.note_opacity,
       alwaysOnTop: config.always_on_top,
@@ -100,6 +101,7 @@ export class SettingsService {
 
 const toConfigPatch = (patch: SettingsPatch): ConfigPatch => {
   const configPatch: ConfigPatch = {};
+  if (patch.selectedProject !== undefined) configPatch.selected_project = patch.selectedProject;
   if (patch.noteColor !== undefined) configPatch.note_color = patch.noteColor;
   if (patch.noteOpacity !== undefined) configPatch.note_opacity = patch.noteOpacity;
   if (patch.alwaysOnTop !== undefined) configPatch.always_on_top = patch.alwaysOnTop;

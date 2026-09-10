@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_LLM_SETTINGS } from '../../../src/shared/constants';
+import type { AppConfig } from '../../../src/shared/domain';
+import {
+  DEFAULT_CONFIG,
+  PROJECT_CONSENT_VERSION,
+  DEFAULT_LLM_SETTINGS,
+} from '../../../src/shared/constants';
 import { ReportSettingsService } from '../../../src/main/services/reportSettingsService';
 import type { ConfigService } from '../../../src/main/services/configService';
 import type { CredentialService } from '../../../src/main/services/credentialService';
@@ -46,5 +51,23 @@ describe('ReportSettingsService connection test', () => {
     const serializedRequest = JSON.stringify(complete.mock.calls[0]);
     expect(serializedRequest).not.toContain('{{tasks}}');
     expect(serializedRequest).not.toContain('不应发送的模板');
+  });
+  it('does not reuse legacy or different-origin remote consent', () => {
+    const config: AppConfig = structuredClone(DEFAULT_CONFIG);
+    config.remote_consent_confirmed = true;
+    config.llm.baseUrl = 'https://example.com/v1';
+    const service = new ReportSettingsService({
+      config: { get: () => config } as ConfigService,
+      recordTemplates: {} as ReportTemplateService,
+      remoteTemplates: {} as ReportTemplateService,
+      prompts: {} as ReportTemplateService,
+      credentials: {} as CredentialService,
+    });
+    expect(service.isRemoteConsentConfirmed()).toBe(false);
+    config.remote_consent_version = PROJECT_CONSENT_VERSION;
+    config.remote_consent_origin = 'https://example.com';
+    expect(service.isRemoteConsentConfirmed()).toBe(true);
+    config.llm.baseUrl = 'https://another.example/v1';
+    expect(service.isRemoteConsentConfirmed()).toBe(false);
   });
 });

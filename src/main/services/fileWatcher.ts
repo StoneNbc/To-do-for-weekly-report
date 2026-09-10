@@ -125,7 +125,9 @@ export class FileWatcherService {
 
   #scope(
     file: string,
-  ): { kind: 'today' | 'config' | 'week'; isoYear?: number; isoWeek?: number } | null {
+  ): { kind: 'today' | 'config' | 'week' | 'projects'; isoYear?: number; isoWeek?: number } | null {
+    if (file === path.resolve(this.#options.paths.root, 'projects.txt'))
+      return { kind: 'projects' };
     if (file === path.resolve(this.#options.paths.todayFile)) return { kind: 'today' };
     if (file === path.resolve(this.#options.paths.configFile)) return { kind: 'config' };
     if (path.dirname(file) !== path.resolve(this.#options.paths.weeksDirectory)) return null;
@@ -135,7 +137,7 @@ export class FileWatcherService {
   }
 
   #eventForScope(
-    scope: { kind: 'today' | 'config' | 'week'; isoYear?: number; isoWeek?: number },
+    scope: { kind: 'today' | 'config' | 'week' | 'projects'; isoYear?: number; isoWeek?: number },
     reason: 'external-edit' | 'app-write',
   ): DataChangedEvent {
     if (scope.kind === 'week') {
@@ -154,6 +156,10 @@ export class FileWatcherService {
     // 原子写临时文件和日志都不是业务数据，监听它们只会制造刷新回声。
     return (
       base.includes('.tmp') ||
+      path.resolve(candidate) === path.join(this.#options.paths.root, 'recovery') ||
+      path
+        .resolve(candidate)
+        .startsWith(path.join(this.#options.paths.root, 'recovery') + path.sep) ||
       path.resolve(candidate).startsWith(path.resolve(this.#options.paths.logsDirectory))
     );
   }

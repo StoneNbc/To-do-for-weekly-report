@@ -1,3 +1,8 @@
+import { useProjects } from '../hooks/useProjects';
+import { ProjectSelect } from '../components/ProjectSelect';
+import { ProjectManager } from '../components/ProjectManager';
+import { ProjectTaskGroups } from '../components/ProjectTaskGroups';
+import { matchesProject, type ProjectFilter, type ProjectView } from '../../shared/projects';
 import {
   useCallback,
   useEffect,
@@ -9,11 +14,11 @@ import {
 } from 'react';
 import type {
   AddedDateDisplay,
+  TaskLocator,
   DayRecordSnapshot,
   HistoryViewSnapshot,
   HistoricalTaskView,
   NoteDockSnapshot,
-  TaskLocator,
   TodaySnapshot,
   TodayTaskView,
   SettingsSnapshot,
@@ -49,6 +54,22 @@ function isTodaySnapshot(snapshot: NoteSnapshot | null): snapshot is TodaySnapsh
  */
 export function FloatingNotePage() {
   const api = useElectronAPI();
+  const projectState = useProjects();
+  const refreshProjects = projectState.refresh;
+  const setProjectSnapshot = projectState.setSnapshot;
+  const [projectFilter, setProjectFilter] = useState<ProjectFilter>({ kind: 'all' });
+  const [managerOpen, setManagerOpen] = useState(false);
+  const [addProject, setAddProject] = useState<ProjectFilter>({ kind: 'unclassified' });
+  const [addFocus, setAddFocus] = useState(0);
+  const changeProject = useCallback(
+    (filter: ProjectFilter) => {
+      setProjectFilter(filter);
+      void api.settings.update({ selectedProject: filter }).then((result) => {
+        if (!result.ok) dispatch({ type: 'mutation-failure', error: result.error });
+      });
+    },
+    [api],
+  );
   const today = getLocalDate();
   const [state, dispatch] = useReducer(noteReducer, today, createInitialNoteState);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -104,6 +125,7 @@ export function FloatingNotePage() {
 
   const applySettings = useCallback((snapshot: SettingsSnapshot) => {
     setAlwaysOnTop(snapshot.alwaysOnTop);
+    if (snapshot.selectedProject) setProjectFilter(snapshot.selectedProject);
     setAppearance({ noteColor: snapshot.noteColor, noteOpacity: snapshot.noteOpacity });
     setEdgeRevealColor(snapshot.edgeRevealColor);
     setAddedDateDisplay(snapshot.addedDateDisplay);
@@ -194,9 +216,10 @@ export function FloatingNotePage() {
           event.isoWeek === undefined ||
           (event.isoYear === selectedWeek.isoYear && event.isoWeek === selectedWeek.isoWeek);
         const affectsView =
-          state.mode === 'today'
+          event.scope === 'projects' ||
+          (state.mode === 'today'
             ? event.scope === 'today'
-            : event.scope === 'today' || (event.scope === 'week' && affectsSelectedWeek);
+            : event.scope === 'today' || (event.scope === 'week' && affectsSelectedWeek));
         if (affectsView) {
           dispatch({
             type: 'set-notice',
@@ -223,6 +246,7 @@ export function FloatingNotePage() {
           expiresAt: Date.now() + 1_000,
         };
         dispatch({ type: 'mutation-success', snapshot: result.data, notice: successNotice });
+        void refreshProjects();
         return true;
       }
       dispatch({ type: 'mutation-failure', error: result.error });
@@ -251,20 +275,81 @@ export function FloatingNotePage() {
       }
       return false;
     },
-    [api, state.mode, state.selectedDate],
+    [api, state.mode, state.selectedDate, refreshProjects],
   );
 
   const todayTasks = isTodaySnapshot(state.snapshot) ? state.snapshot.tasks : [];
-  const pendingTasks = todayTasks.filter((task) => !task.completed);
-  const completedTasks = todayTasks.filter((task) => task.completed);
+  const pendingTasks = todayTasks.filter(
+    (task) => !task.completed && matchesProject(task.projectName, projectFilter),
+  );
+  const completedTasks = todayTasks.filter(
+    (task) => task.completed && matchesProject(task.projectName, projectFilter),
+  );
   const historicalSnapshot: HistoryViewSnapshot | null =
     state.mode === 'history' && state.snapshot && !isTodaySnapshot(state.snapshot)
       ? state.snapshot
       : null;
-  const historicalPendingTasks = historicalSnapshot?.backlog.tasks ?? [];
-  const saving = state.mutation === 'saving';
+  const historicalPendingTasks = (historicalSnapshot?.backlog.tasks ?? []).filter((task) =>
+    matchesProject(task.projectName, projectFilter),
+  );
+  const saving = state.mutation === 'saving' || projectState.snapshot.recovery.blocked;
+  useEffect(() => {
+    if (!projectState.loaded || projectFilter.kind !== 'names' || managerOpen) return;
+    const current = projectState.snapshot.projects.find(
+      (project) => project.name === projectFilter.names[0],
+    );
+    if (
+      !current ||
+      (state.mode === 'today' && current.status === 'archived' && !current.pendingCount)
+    )
+      changeProject({ kind: 'all' });
+  }, [
+    projectState.loaded,
+    projectState.snapshot,
+    projectFilter,
+    managerOpen,
+    state.mode,
+    changeProject,
+  ]);
+  useEffect(() => {
+    if (!projectState.loaded || managerOpen) return;
+    const isAvailable = (filter: ProjectFilter) =>
+      filter.kind !== 'names' ||
+      projectState.snapshot.projects.some(
+        (project) =>
+          project.name === filter.names[0] && !project.unregistered && project.status === 'active',
+      );
+    if (!isAvailable(addProject)) setAddProject({ kind: 'unclassified' });
+  }, [projectState.loaded, projectState.snapshot, managerOpen, addProject]);
+  const effectiveAddProject = projectFilter.kind === 'all' ? addProject : projectFilter;
+  const addProjectName =
+    effectiveAddProject.kind === 'names' ? (effectiveAddProject.names[0] ?? null) : null;
+  const addToProject = (name: string | null) => {
+    if (saving || activeEditingKey !== null) return;
+    changeProject(name === null ? { kind: 'unclassified' } : { kind: 'names', names: [name] });
+    setAddFocus((value) => value + 1);
+  };
+  useEffect(
+    () =>
+      api.events.onProjectCreated((name) => {
+        // Fetch the authoritative directory before selecting, avoiding a stale-list fallback.
+        void api.projects.get().then((result) => {
+          if (!result.ok) return;
+          setProjectSnapshot(result.data);
+          changeProject({ kind: 'names', names: [name] });
+          setManagerOpen(false);
+          setAddFocus((value) => value + 1);
+        });
+      }),
+    [api, changeProject, setProjectSnapshot],
+  );
   const autoHideBlocked =
-    menuOpen || activeEditingKey !== null || textInputFocused || saving || collapsePending;
+    menuOpen ||
+    managerOpen ||
+    activeEditingKey !== null ||
+    textInputFocused ||
+    saving ||
+    collapsePending;
 
   useEffect(() => {
     const signature = `${pointerInside}:${autoHideBlocked}`;
@@ -275,12 +360,20 @@ export function FloatingNotePage() {
       .catch(() => undefined);
   }, [api, autoHideBlocked, pointerInside]);
 
-  const editToday = (task: TodayTaskView, content: string, details: string) => {
+  const editToday = (
+    task: TodayTaskView,
+    content: string,
+    details: string,
+    projectName?: string | null,
+  ) => {
     // 编辑已完成任务时保留原完成时间，除非用户在历史模式显式修改时间。
     const input = task.completedAt
       ? { locator: task.locator, content, details, completedAt: task.completedAt }
       : { locator: task.locator, content, details };
-    return applyMutation(() => api.today.edit(input));
+    return applyMutation(
+      () => api.today.edit({ ...input, ...(projectName !== undefined ? { projectName } : {}) }),
+      projectName !== undefined ? `已移至「${projectName ?? '未分类'}」` : undefined,
+    );
   };
 
   const editHistorical = (
@@ -288,16 +381,25 @@ export function FloatingNotePage() {
     content: string,
     details: string,
     completedAt?: string,
+    projectName?: string | null,
   ) => {
     const input = completedAt
       ? { date: task.date, locator: task.locator, content, details, completedAt }
       : { date: task.date, locator: task.locator, content, details };
-    return applyMutation(() => api.history.edit(input));
+    return applyMutation(() =>
+      api.history.edit({ ...input, ...(projectName !== undefined ? { projectName } : {}) }),
+    );
   };
 
-  const editHistoricalPending = (task: TodayTaskView, content: string, details: string) =>
+  const editHistoricalPending = (
+    task: TodayTaskView,
+    content: string,
+    details: string,
+    projectName?: string | null,
+  ) =>
     applyMutation(() =>
       api.history.editPending({
+        ...(projectName !== undefined ? { projectName } : {}),
         date: state.selectedDate,
         locator: task.locator,
         content,
@@ -324,7 +426,7 @@ export function FloatingNotePage() {
   }, [api]);
 
   const toggleCollapsed = useCallback(async () => {
-    if (collapsePending) return;
+    if (collapsePending || activeEditingKey !== null || managerOpen) return;
     const next = !collapsed;
     setCollapsePending(true);
     setMenuOpen(false);
@@ -342,7 +444,7 @@ export function FloatingNotePage() {
     } finally {
       setCollapsePending(false);
     }
-  }, [api, collapsePending, collapsed]);
+  }, [api, collapsePending, collapsed, activeEditingKey, managerOpen]);
 
   const toggleMenu = useCallback(async () => {
     if (!collapsed) {
@@ -384,6 +486,18 @@ export function FloatingNotePage() {
             type="button"
           >
             打开周记
+          </button>
+          <button
+            className="menu-item"
+            role="menuitem"
+            disabled={activeEditingKey !== null}
+            onClick={() => {
+              setMenuOpen(false);
+              setManagerOpen(true);
+            }}
+            type="button"
+          >
+            管理项目
           </button>
           <button
             className="menu-item"
@@ -441,7 +555,7 @@ export function FloatingNotePage() {
           </button>
         </div>
       ) : null,
-    [alwaysOnTop, api, exportCurrentWeek, exporting, menuOpen],
+    [alwaysOnTop, api, exportCurrentWeek, exporting, menuOpen, activeEditingKey],
   );
 
   const theme = getNoteTheme(appearance.noteColor);
@@ -470,14 +584,18 @@ export function FloatingNotePage() {
         queueMicrotask(() => {
           const active = document.activeElement;
           setTextInputFocused(
-            active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement,
+            active instanceof HTMLInputElement ||
+              active instanceof HTMLTextAreaElement ||
+              active instanceof HTMLSelectElement,
           );
         });
       }}
       onFocusCapture={(event) => {
         const target = event.target;
         setTextInputFocused(
-          target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement,
+          target instanceof HTMLInputElement ||
+            target instanceof HTMLTextAreaElement ||
+            target instanceof HTMLSelectElement,
         );
       }}
       onPointerEnter={() => setPointerInside(true)}
@@ -493,18 +611,36 @@ export function FloatingNotePage() {
         />
       ) : (
         <>
+          {managerOpen && !collapsed && (
+            <ProjectManager
+              snapshot={projectState.snapshot}
+              onSnapshot={projectState.setSnapshot}
+              onClose={() => setManagerOpen(false)}
+              onRenamed={(oldName, newName) => {
+                if (projectFilter.kind === 'names' && projectFilter.names.includes(oldName))
+                  changeProject({ kind: 'names', names: [newName] });
+                void refresh();
+              }}
+            />
+          )}
           <TitleBar
             collapsed={collapsed}
             collapsePending={collapsePending}
             isHistory={state.mode === 'history'}
             onNextDay={() => {
+              if (activeEditingKey !== null || managerOpen) return;
               const next = addLocalDays(state.selectedDate, 1);
               if (next === today) void loadToday();
               else if (next < today) void loadHistory(next);
             }}
             onOpenMenu={() => void toggleMenu()}
-            onPreviousDay={() => void loadHistory(addLocalDays(state.selectedDate, -1))}
-            onToday={() => void loadToday()}
+            onPreviousDay={() => {
+              if (activeEditingKey === null && !managerOpen)
+                void loadHistory(addLocalDays(state.selectedDate, -1));
+            }}
+            onToday={() => {
+              if (activeEditingKey === null && !managerOpen) void loadToday();
+            }}
             onToggleCollapsed={() => void toggleCollapsed()}
             menuOpen={menuOpen}
             selectedDate={state.selectedDate}
@@ -512,6 +648,55 @@ export function FloatingNotePage() {
           {!collapsed ? (
             <>
               {menu}
+              <div className="note-project-toolbar no-drag mt-2 flex min-w-0 items-center gap-1">
+                <div className="min-w-0 flex-1">
+                  <ProjectSelect
+                    projects={projectState.snapshot.projects}
+                    value={projectFilter}
+                    onChange={changeProject}
+                    includeArchived={state.mode === 'history'}
+                    disabled={saving || activeEditingKey !== null}
+                  />
+                </div>
+                <button
+                  className="note-toolbar-action"
+                  aria-label="新建项目"
+                  title="新建项目"
+                  disabled={saving || activeEditingKey !== null}
+                  onClick={() =>
+                    void api.window.openProjectCreate().catch(() =>
+                      dispatch({
+                        type: 'mutation-failure',
+                        error: { code: 'IO_ERROR', message: '无法打开新建项目窗口，请重试' },
+                      }),
+                    )
+                  }
+                >
+                  新建
+                </button>
+                <button
+                  className="note-toolbar-action"
+                  aria-label="项目管理"
+                  title="项目管理"
+                  disabled={activeEditingKey !== null}
+                  onClick={() => setManagerOpen(true)}
+                >
+                  管理
+                </button>
+              </div>
+              {projectState.error && (
+                <p className="mt-1 text-xs text-red-700" role="alert">
+                  {projectState.error}
+                  <button className="ml-2 underline" onClick={() => void projectState.refresh()}>
+                    重试
+                  </button>
+                </p>
+              )}
+              {projectState.snapshot.recovery.blocked && (
+                <p className="mt-1 text-xs text-red-700" role="alert">
+                  项目改名需要恢复，请打开项目管理。
+                </p>
+              )}
               <StatusBanner error={state.error} notice={state.notice} onRetry={refresh} />
 
               <section
@@ -525,6 +710,9 @@ export function FloatingNotePage() {
                 ) : state.mode === 'today' ? (
                   <>
                     <TaskList
+                      projects={projectState.snapshot.projects}
+                      groupByProject={projectFilter.kind === 'all'}
+                      onAddToProject={addToProject}
                       activeEditingKey={activeEditingKey}
                       addedDateDisplay={addedDateDisplay}
                       disabled={saving}
@@ -535,6 +723,8 @@ export function FloatingNotePage() {
                       tasks={pendingTasks}
                     />
                     <CompletedSection
+                      projects={projectState.snapshot.projects}
+                      groupByProject={projectFilter.kind === 'all'}
                       activeEditingKey={activeEditingKey}
                       addedDateDisplay={addedDateDisplay}
                       disabled={saving}
@@ -560,6 +750,9 @@ export function FloatingNotePage() {
                 ) : (
                   <>
                     <TaskList
+                      projects={projectState.snapshot.projects}
+                      groupByProject={projectFilter.kind === 'all'}
+                      onAddToProject={addToProject}
                       activeEditingKey={activeEditingKey}
                       addedDateDisplay={addedDateDisplay}
                       disabled={saving}
@@ -578,6 +771,8 @@ export function FloatingNotePage() {
                       tasks={historicalPendingTasks}
                     />
                     <HistoricalRecords
+                      projects={projectState.snapshot.projects}
+                      projectFilter={projectFilter}
                       activeEditingKey={activeEditingKey}
                       addedDateDisplay={addedDateDisplay}
                       disabled={saving}
@@ -599,22 +794,62 @@ export function FloatingNotePage() {
                 )}
               </section>
 
-              {state.mode === 'today' ? (
-                <AddTaskInput
-                  disabled={saving}
-                  onAdd={(content) => applyMutation(() => api.today.add(content))}
-                />
-              ) : (
-                <AddTaskInput
-                  disabled={saving}
-                  onAdd={(content) =>
-                    applyMutation(
-                      () => api.history.addPending({ date: state.selectedDate, content }),
-                      '已添加到全局待办',
-                    )
-                  }
-                />
-              )}
+              <div className="note-composer">
+                {projectFilter.kind === 'all' && (
+                  <div className="note-composer-target no-drag flex items-center gap-2 text-xs text-stone-500">
+                    <span>添加到</span>
+                    <ProjectSelect
+                      allowAll={false}
+                      label="新待办所属项目"
+                      projects={projectState.snapshot.projects.filter(
+                        (project) => !project.unregistered && project.status === 'active',
+                      )}
+                      value={addProject}
+                      onChange={setAddProject}
+                      disabled={saving}
+                    />
+                  </div>
+                )}
+                {state.mode === 'today' ? (
+                  <AddTaskInput
+                    focusSignal={addFocus}
+                    placeholder={
+                      projectFilter.kind === 'all'
+                        ? '添加待办…'
+                        : `添加到「${addProjectName ?? '未分类'}」…`
+                    }
+                    disabled={saving}
+                    onAdd={(content) =>
+                      applyMutation(() =>
+                        addProjectName === null
+                          ? api.today.add(content)
+                          : api.today.add(content, addProjectName),
+                      )
+                    }
+                  />
+                ) : (
+                  <AddTaskInput
+                    focusSignal={addFocus}
+                    placeholder={
+                      projectFilter.kind === 'all'
+                        ? '添加待办…'
+                        : `添加到「${addProjectName ?? '未分类'}」…`
+                    }
+                    disabled={saving}
+                    onAdd={(content) =>
+                      applyMutation(
+                        () =>
+                          api.history.addPending({
+                            date: state.selectedDate,
+                            content,
+                            ...(addProjectName !== null ? { projectName: addProjectName } : {}),
+                          }),
+                        '已添加到全局待办',
+                      )
+                    }
+                  />
+                )}
+              </div>
             </>
           ) : null}
         </>
@@ -624,6 +859,8 @@ export function FloatingNotePage() {
 }
 
 function HistoricalRecords({
+  projects,
+  projectFilter,
   snapshot,
   disabled,
   onEdit,
@@ -634,12 +871,15 @@ function HistoricalRecords({
   onEditingChange,
 }: {
   snapshot: DayRecordSnapshot | null;
+  projects?: ProjectView[] | undefined;
+  projectFilter?: ProjectFilter | undefined;
   disabled: boolean;
   onEdit: (
     task: HistoricalTaskView,
     content: string,
     details: string,
     completedAt?: string,
+    projectName?: string | null,
   ) => Promise<boolean> | boolean;
   onDelete: (locator: TaskLocator) => void;
   onToggle: (locator: TaskLocator) => void;
@@ -647,13 +887,12 @@ function HistoricalRecords({
   activeEditingKey: string | null;
   onEditingChange: (taskKey: string | null) => void;
 }) {
-  const tasks = snapshot?.tasks ?? [];
+  const tasks = (snapshot?.tasks ?? []).filter((task) =>
+    matchesProject(task.projectName, projectFilter),
+  );
 
   return (
-    <section
-      className="mt-3 border-t border-amber-900/10 pt-2"
-      aria-labelledby="history-completed-heading"
-    >
+    <section className="note-completed mt-3 pt-2" aria-labelledby="history-completed-heading">
       <h2 className="px-2 py-1.5 text-xs font-medium text-stone-500" id="history-completed-heading">
         已完成（{tasks.length}）
       </h2>
@@ -665,27 +904,34 @@ function HistoricalRecords({
         </p>
       ) : (
         <ul aria-label="历史完成记录" className="space-y-1">
-          {tasks.map((task) => (
-            <TaskItem
-              activeEditingKey={activeEditingKey}
-              completed
-              addedDate={task.addedDate}
-              addedDateDisplay={addedDateDisplay}
-              completedAt={task.completedAt}
-              content={task.content}
-              details={task.details}
-              disabled={disabled}
-              key={`${task.locator.revision}:${task.locator.line}`}
-              locator={task.locator}
-              onDelete={onDelete}
-              onEditingChange={onEditingChange}
-              onEdit={(_, content, details, completedAt) =>
-                onEdit(task, content, details, completedAt)
-              }
-              onToggle={onToggle}
-              editableTime
-            />
-          ))}
+          <ProjectTaskGroups
+            tasks={tasks}
+            projects={projects}
+            group={projectFilter?.kind === 'all'}
+            render={(task) => (
+              <TaskItem
+                activeEditingKey={activeEditingKey}
+                completed
+                addedDate={task.addedDate}
+                addedDateDisplay={addedDateDisplay}
+                completedAt={task.completedAt}
+                projectName={task.projectName}
+                projects={projects}
+                content={task.content}
+                details={task.details}
+                disabled={disabled}
+                key={`${task.locator.revision}:${task.locator.line}`}
+                locator={task.locator}
+                onDelete={onDelete}
+                onEditingChange={onEditingChange}
+                onEdit={(_, content, details, completedAt, projectName) =>
+                  onEdit(task, content, details, completedAt, projectName)
+                }
+                onToggle={onToggle}
+                editableTime
+              />
+            )}
+          />
         </ul>
       )}
     </section>

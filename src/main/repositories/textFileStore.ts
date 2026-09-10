@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { dirname, basename, resolve } from 'node:path';
-import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, rm, link } from 'node:fs/promises';
 import { decodeText, type LineEnding } from '../parsers/lineEndings';
 
 export interface TextFileSnapshot {
@@ -38,6 +38,7 @@ export const computeRevision = (text: string): string =>
  * - 对同一路径的操作串行排队，保证「读-改-写」的原子性。
  */
 export class TextFileStore {
+  constructor(private readonly writeGuard: () => void = () => undefined) {}
   // 同一路径的操作串行执行；不同文件仍可并行，避免全局锁降低响应速度。
   private readonly queues = new Map<string, Promise<void>>();
 
@@ -48,6 +49,7 @@ export class TextFileStore {
 
   /** 无条件覆盖写入，不校验 revision；适合创建缺失文件等场景。 */
   async writeAtomic(path: string, text: string): Promise<TextFileSnapshot> {
+    this.writeGuard();
     const absolutePath = resolve(path);
     return this.enqueue(absolutePath, () => this.writeUnlocked(absolutePath, text));
   }
@@ -63,6 +65,7 @@ export class TextFileStore {
       snapshot: TextFileSnapshot,
     ) => Promise<{ text: string; result: T }> | { text: string; result: T },
   ): Promise<TextFileUpdate<T>> {
+    this.writeGuard();
     const absolutePath = resolve(path);
     return this.enqueue(absolutePath, async () => {
       const current = await this.readUnlocked(absolutePath);
@@ -87,6 +90,7 @@ export class TextFileStore {
       snapshot: TextFileSnapshot,
     ) => Promise<{ text: string; result: T }> | { text: string; result: T },
   ): Promise<TextFileUpdate<T>> {
+    this.writeGuard();
     const absolutePath = resolve(path);
     return this.enqueue(absolutePath, async () => {
       let current: TextFileSnapshot;
@@ -104,6 +108,34 @@ export class TextFileStore {
   }
 
   /** 等待所有排队中的写入完成，应用退出前用于冲刷未落盘的数据。 */
+  async createAtomic(path: string, text: string): Promise<TextFileSnapshot> {
+    this.writeGuard();
+    const absolute = resolve(path);
+    return this.enqueue(absolute, async () => {
+      await mkdir(dirname(absolute), { recursive: true });
+      const temporary = `${absolute}.${randomBytes(8).toString('hex')}.tmp`;
+      try {
+        const handle = await open(temporary, 'wx', 0o600);
+        try {
+          await handle.writeFile(text, 'utf8');
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+        try {
+          await link(temporary, absolute);
+        } catch (error) {
+          if (error instanceof Error && 'code' in error && error.code === 'EEXIST')
+            throw new FileChangedError(absolute);
+          throw error;
+        }
+        return this.createSnapshot(absolute, text);
+      } finally {
+        await rm(temporary, { force: true });
+      }
+    });
+  }
+
   async drain(): Promise<void> {
     await Promise.all([...this.queues.values()]);
   }
