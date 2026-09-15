@@ -47,9 +47,11 @@ const electronMocks = vi.hoisted(() => {
     minimumSize = { width: 0, height: 0 };
     resizable = true;
     visible = false;
+    minimized = false;
     destroyed = false;
     readonly alwaysOnTopCalls: unknown[][] = [];
     readonly visibleOnAllWorkspacesCalls: unknown[][] = [];
+    showCalls = 0;
 
     constructor(options: unknown) {
       super();
@@ -97,7 +99,7 @@ const electronMocks = vi.hoisted(() => {
     }
     setOpacity(): void {}
     isMinimized(): boolean {
-      return false;
+      return this.minimized;
     }
     isMaximized(): boolean {
       return false;
@@ -110,6 +112,7 @@ const electronMocks = vi.hoisted(() => {
     }
     restore(): void {}
     show(): void {
+      this.showCalls += 1;
       this.visible = true;
     }
     hide(): void {
@@ -132,12 +135,14 @@ const electronMocks = vi.hoisted(() => {
     async loadURL(): Promise<void> {}
   }
 
-  const display = { id: 1, workArea: { x: 0, y: 24, width: 1_440, height: 876 } };
+  const defaultDisplay = { id: 1, workArea: { x: 0, y: 24, width: 1_440, height: 876 } };
+  let displays = [defaultDisplay];
+  let primaryDisplayId = defaultDisplay.id;
   let cursorPoint = { x: -1_000, y: -1_000 };
   const screen = Object.assign(new MockEmitter(), {
-    getPrimaryDisplay: () => display,
-    getAllDisplays: () => [display],
-    getDisplayMatching: () => display,
+    getPrimaryDisplay: () => displays.find(({ id }) => id === primaryDisplayId) ?? displays[0],
+    getAllDisplays: () => displays,
+    getDisplayMatching: () => displays[0],
     getCursorScreenPoint: () => ({ ...cursorPoint }),
   });
 
@@ -146,6 +151,20 @@ const electronMocks = vi.hoisted(() => {
     screen,
     setCursorPoint: (point: { x: number; y: number }) => {
       cursorPoint = point;
+    },
+    resetDisplays: () => {
+      displays = [defaultDisplay];
+      primaryDisplayId = defaultDisplay.id;
+    },
+    setDisplays: (
+      nextDisplays: Array<{
+        id: number;
+        workArea: { x: number; y: number; width: number; height: number };
+      }>,
+      nextPrimaryId?: number,
+    ) => {
+      displays = nextDisplays;
+      primaryDisplayId = nextPrimaryId ?? nextDisplays[0]?.id ?? defaultDisplay.id;
     },
   };
 });
@@ -192,6 +211,7 @@ beforeEach(() => {
   electronMocks.MockBrowserWindow.instances.length = 0;
   electronMocks.MockBrowserWindow.focused = null;
   electronMocks.setCursorPoint({ x: -1_000, y: -1_000 });
+  electronMocks.resetDisplays();
 });
 
 afterEach(() => {
@@ -248,6 +268,94 @@ describe('WindowManager note auto-hide', () => {
     manager.setNoteInteractionState({ pointerInside: false, autoHideBlocked: false });
     await vi.advanceTimersByTimeAsync(500);
     expect(manager.getNoteDockState().phase).toBe('hidden');
+    manager.closeAll();
+  });
+
+  it('keeps a hidden note hidden when an unrelated display is connected', async () => {
+    const config = makeConfig();
+    const manager = new WindowManager({
+      config: config as unknown as ConfigService,
+      logger: makeLogger(),
+      preloadPath: '/preload.cjs',
+      rendererHtmlPath: '/index.html',
+      isQuitting: () => false,
+    });
+    const window = (await manager.createFloatingNote()) as unknown as InstanceType<
+      typeof electronMocks.MockBrowserWindow
+    >;
+    await vi.advanceTimersByTimeAsync(500);
+    expect(manager.getNoteDockState().phase).toBe('hidden');
+
+    electronMocks.setDisplays([
+      { id: 1, workArea: { x: 0, y: 24, width: 1_440, height: 876 } },
+      { id: 2, workArea: { x: 1_440, y: 24, width: 1_200, height: 876 } },
+    ]);
+    electronMocks.screen.emit('display-added');
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(manager.getNoteDockState()).toEqual({ edge: 'left', phase: 'hidden' });
+    expect(window.getBounds()).toEqual({ x: 0, y: 100, width: 2, height: 400 });
+    expect(window.showCalls).toBe(0);
+    manager.closeAll();
+  });
+
+  it('moves a hidden note to the primary display and preserves its edge when its display is removed', async () => {
+    const config = makeConfig({ x: 1_120, y: 100, width: 320, height: 400 });
+    const manager = new WindowManager({
+      config: config as unknown as ConfigService,
+      logger: makeLogger(),
+      preloadPath: '/preload.cjs',
+      rendererHtmlPath: '/index.html',
+      isQuitting: () => false,
+    });
+    const window = (await manager.createFloatingNote()) as unknown as InstanceType<
+      typeof electronMocks.MockBrowserWindow
+    >;
+    await vi.advanceTimersByTimeAsync(500);
+    expect(manager.getNoteDockState()).toEqual({ edge: 'right', phase: 'hidden' });
+
+    electronMocks.setDisplays([
+      { id: 2, workArea: { x: -1_920, y: 0, width: 1_920, height: 1_080 } },
+    ]);
+    electronMocks.screen.emit('display-removed');
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(manager.getNoteDockState()).toEqual({ edge: 'right', phase: 'hidden' });
+    expect(window.getBounds()).toEqual({ x: -2, y: 109, width: 2, height: 400 });
+    expect(config.snapshot().window_bounds).toEqual({
+      x: -320,
+      y: 109,
+      width: 320,
+      height: 400,
+    });
+    manager.closeAll();
+  });
+
+  it('falls back to a visible undocked note when the preserved edge becomes a seam', async () => {
+    const config = makeConfig({ x: 1_120, y: 100, width: 320, height: 400 });
+    const manager = new WindowManager({
+      config: config as unknown as ConfigService,
+      logger: makeLogger(),
+      preloadPath: '/preload.cjs',
+      rendererHtmlPath: '/index.html',
+      isQuitting: () => false,
+    });
+    const window = (await manager.createFloatingNote()) as unknown as InstanceType<
+      typeof electronMocks.MockBrowserWindow
+    >;
+    await vi.advanceTimersByTimeAsync(500);
+
+    electronMocks.setDisplays([
+      { id: 1, workArea: { x: 0, y: 24, width: 1_440, height: 876 } },
+      { id: 2, workArea: { x: 1_440, y: 24, width: 1_200, height: 876 } },
+    ]);
+    electronMocks.screen.emit('display-added');
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(manager.getNoteDockState()).toEqual({ edge: null, phase: 'undocked' });
+    expect(window.getBounds()).toEqual({ x: 1_120, y: 100, width: 320, height: 400 });
+    expect(window.minimumSize).toEqual({ width: 280, height: 280 });
+    expect(window.resizable).toBe(true);
     manager.closeAll();
   });
 

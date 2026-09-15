@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   detectNoteDockCandidate,
   getHiddenNoteBounds,
+  restoreNoteDockCandidate,
   snapNoteToEdge,
   type NoteDisplayArea,
 } from '../../../src/main/platform/noteAutoHide';
@@ -103,5 +104,43 @@ describe('note edge auto-hide geometry', () => {
     expect(
       detectNoteDockCandidate({ x: -1_280, y: 80, width: 320, height: 400 }, left, [left, primary]),
     ).toMatchObject({ edge: 'left', displayId: 3 });
+  });
+
+  it('maps a docked note to the same relative position on a replacement display', () => {
+    const replacement: NoteDisplayArea = {
+      id: 2,
+      primary: true,
+      workArea: { x: -1_920, y: 0, width: 1_920, height: 1_080 },
+    };
+    expect(
+      restoreNoteDockCandidate({
+        visibleBounds: { x: 0, y: 262, width: 320, height: 400 },
+        sourceWorkArea: primary.workArea,
+        targetDisplay: replacement,
+        displays: [replacement],
+        edge: 'left',
+      }),
+    ).toMatchObject({
+      edge: 'left',
+      displayId: 2,
+      visibleBounds: { x: -1_920, y: 340, width: 320, height: 400 },
+      hiddenBounds: { x: -1_920, y: 340, width: 2, height: 400 },
+    });
+  });
+
+  it('rejects the preserved edge when it becomes an internal seam', () => {
+    const right: NoteDisplayArea = {
+      id: 2,
+      workArea: { x: 1_440, y: 24, width: 1_200, height: 876 },
+    };
+    expect(
+      restoreNoteDockCandidate({
+        visibleBounds: { x: 1_120, y: 100, width: 320, height: 400 },
+        sourceWorkArea: primary.workArea,
+        targetDisplay: primary,
+        displays: [primary, right],
+        edge: 'right',
+      }),
+    ).toBeNull();
   });
 });

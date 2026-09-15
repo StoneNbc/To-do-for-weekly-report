@@ -16,6 +16,7 @@ import { restoreVisibleBounds } from './platform/displayBounds';
 import {
   detectNoteDockCandidate,
   getHiddenNoteBounds,
+  restoreNoteDockCandidate,
   snapNoteToEdge,
   type NoteDisplayArea,
 } from './platform/noteAutoHide';
@@ -75,6 +76,13 @@ const sameBounds = (left: Rectangle, right: Rectangle): boolean =>
   left.height === right.height;
 
 const NOTE_POINTER_POLL_MS = 50;
+const DISPLAY_CHANGE_SETTLE_MS = 300;
+const DISPLAY_CHANGE_MAX_WAIT_MS = 1_500;
+
+interface DisplayRecoverySnapshot {
+  dockState: NoteDockRuntimeState;
+  displays: NoteDisplayArea[];
+}
 
 /**
  * 管理便利贴、周记、设置三个 BrowserWindow 的创建、显示与交互。
@@ -95,14 +103,31 @@ export class WindowManager {
   #autoHideTimer: NodeJS.Timeout | null = null;
   #programmaticBoundsTimer: NodeJS.Timeout | null = null;
   #pointerPollTimer: NodeJS.Timeout | null = null;
+  #displayChangeTimer: NodeJS.Timeout | null = null;
+  #displayChangeStartedAt: number | null = null;
   #visibleOnFullScreenApplied: boolean | null = null;
   #programmaticBoundsChange = false;
   #pendingReportGeneration = false;
   #noteCollapsed = false;
   #expandedNoteBounds: Rectangle | null = null;
   #dockState = createUndockedState();
+  #stableDisplays: NoteDisplayArea[] = [];
+  #displayRecoverySnapshot: DisplayRecoverySnapshot | null = null;
   #displayListenersRegistered = false;
-  readonly #displayChangeHandler = (): void => this.#handleDisplayChange();
+  readonly #displayChangeHandler = (): void => this.#scheduleDisplayRecovery();
+  readonly #displayMetricsChangeHandler = (
+    _event: unknown,
+    _display: unknown,
+    changedMetrics: string[],
+  ): void => {
+    if (
+      changedMetrics.some((metric) =>
+        ['bounds', 'workArea', 'scaleFactor', 'rotation'].includes(metric),
+      )
+    ) {
+      this.#scheduleDisplayRecovery();
+    }
+  };
 
   constructor(options: WindowManagerOptions) {
     this.#options = options;
@@ -163,6 +188,7 @@ export class WindowManager {
     });
     this.#noteWindow = noteWindow;
     this.#dockState = createUndockedState();
+    this.#stableDisplays = toDisplayAreas();
     this.#visibleOnFullScreenApplied = null;
     this.#applyAlwaysOnTop(config.always_on_top, config.show_on_fullscreen);
     this.#registerDisplayListeners();
@@ -173,6 +199,7 @@ export class WindowManager {
     noteWindow.on('close', (event) => {
       // 用户关闭便利贴只隐藏到托盘；真正退出由 lifecycle 设置 quitting 标志。
       if (!this.#options.isQuitting()) {
+        this.#cancelDisplayRecovery();
         event.preventDefault();
         noteWindow.hide();
       }
@@ -356,6 +383,7 @@ export class WindowManager {
   showFloatingNote(): void {
     const window = this.#noteWindow;
     if (!window || window.isDestroyed()) return;
+    this.#cancelDisplayRecovery();
     this.#revealDockedNote('show');
     if (window.isMinimized()) window.restore();
     window.show();
@@ -379,6 +407,7 @@ export class WindowManager {
     if (!window || window.isDestroyed() || collapsed === this.#noteCollapsed) {
       return this.#noteCollapsed;
     }
+    this.#cancelDisplayRecovery();
 
     if (this.#boundsTimer) {
       clearTimeout(this.#boundsTimer);
@@ -423,6 +452,7 @@ export class WindowManager {
   }
 
   toggleFloatingNote(): void {
+    this.#cancelDisplayRecovery();
     if (this.isFloatingNoteVisible()) this.#noteWindow?.hide();
     else this.showFloatingNote();
   }
@@ -464,6 +494,7 @@ export class WindowManager {
   }
 
   applySettings(snapshot: SettingsSnapshot): void {
+    this.#cancelDisplayRecovery(false);
     const noteWindow = this.#noteWindow;
     if (noteWindow && !noteWindow.isDestroyed()) noteWindow.setOpacity(snapshot.noteOpacity);
     this.#applyAlwaysOnTop(snapshot.alwaysOnTop, snapshot.showOnFullScreen);
@@ -510,6 +541,7 @@ export class WindowManager {
   closeAll(): void {
     this.saveCurrentBounds();
     this.#clearDockTimers();
+    this.#cancelDisplayRecovery(false);
     this.#unregisterDisplayListeners();
     this.#projectCreateWindow?.close();
     this.#weeklyWindow?.close();
@@ -585,6 +617,7 @@ export class WindowManager {
   }
 
   #handleManualNoteMove(): void {
+    this.#cancelDisplayRecovery(false);
     if (this.#dockState.phase === 'undocked') return;
     if (this.#programmaticBoundsTimer) clearTimeout(this.#programmaticBoundsTimer);
     this.#programmaticBoundsTimer = null;
@@ -875,7 +908,7 @@ export class WindowManager {
     this.#displayListenersRegistered = true;
     screen.on('display-added', this.#displayChangeHandler);
     screen.on('display-removed', this.#displayChangeHandler);
-    screen.on('display-metrics-changed', this.#displayChangeHandler);
+    screen.on('display-metrics-changed', this.#displayMetricsChangeHandler);
   }
 
   #unregisterDisplayListeners(): void {
@@ -883,15 +916,148 @@ export class WindowManager {
     this.#displayListenersRegistered = false;
     screen.removeListener('display-added', this.#displayChangeHandler);
     screen.removeListener('display-removed', this.#displayChangeHandler);
-    screen.removeListener('display-metrics-changed', this.#displayChangeHandler);
+    screen.removeListener('display-metrics-changed', this.#displayMetricsChangeHandler);
   }
 
-  #handleDisplayChange(): void {
+  #scheduleDisplayRecovery(): void {
     const window = this.#noteWindow;
     if (!window || window.isDestroyed()) return;
+    if (!this.#displayRecoverySnapshot) {
+      this.#displayChangeStartedAt = Date.now();
+      this.#displayRecoverySnapshot = {
+        dockState: {
+          ...this.#dockState,
+          visibleBounds: this.#dockState.visibleBounds
+            ? { ...this.#dockState.visibleBounds }
+            : null,
+        },
+        displays: this.#stableDisplays.map((display) => ({
+          ...display,
+          workArea: { ...display.workArea },
+        })),
+      };
+      this.#clearDockTimers();
+    }
+    if (this.#displayChangeTimer) clearTimeout(this.#displayChangeTimer);
+    const elapsed = Date.now() - (this.#displayChangeStartedAt ?? Date.now());
+    const delay = Math.min(
+      DISPLAY_CHANGE_SETTLE_MS,
+      Math.max(0, DISPLAY_CHANGE_MAX_WAIT_MS - elapsed),
+    );
+    this.#displayChangeTimer = setTimeout(() => {
+      this.#displayChangeTimer = null;
+      this.#applyDisplayRecovery();
+    }, delay);
+  }
+
+  #cancelDisplayRecovery(resumeDock = true): void {
+    const wasPending = this.#displayRecoverySnapshot !== null;
+    if (this.#displayChangeTimer) clearTimeout(this.#displayChangeTimer);
+    this.#displayChangeTimer = null;
+    this.#displayChangeStartedAt = null;
+    this.#displayRecoverySnapshot = null;
+    if (!wasPending || !resumeDock || this.#dockState.phase === 'undocked') return;
+    this.#startPointerTracking();
+    if (
+      this.#dockState.phase === 'docked-visible' &&
+      !this.#dockState.pointerInside &&
+      !this.#dockState.interactionBlocked
+    ) {
+      this.#scheduleAutoHide();
+    }
+  }
+
+  #applyDisplayRecovery(): void {
+    const snapshot = this.#displayRecoverySnapshot;
+    this.#displayRecoverySnapshot = null;
+    this.#displayChangeStartedAt = null;
+    const window = this.#noteWindow;
+    if (!snapshot || !window || window.isDestroyed()) return;
+    const displays = toDisplayAreas();
+    if (displays.length === 0) {
+      this.#displayRecoverySnapshot = snapshot;
+      return;
+    }
+
+    const previous = snapshot.dockState;
+    const sourceDisplay = snapshot.displays.find((display) => display.id === previous.displayId);
+    const targetDisplay =
+      displays.find((display) => display.id === previous.displayId) ??
+      displays.find((display) => display.primary) ??
+      displays[0];
+
+    if (
+      this.#options.config.get().edge_auto_hide &&
+      previous.phase !== 'undocked' &&
+      previous.edge &&
+      previous.visibleBounds &&
+      sourceDisplay &&
+      targetDisplay
+    ) {
+      const fitted = restoreVisibleBounds({
+        saved: {
+          ...previous.visibleBounds,
+          x: targetDisplay.workArea.x,
+          y: targetDisplay.workArea.y,
+        },
+        displays: [targetDisplay],
+        defaults: { width: DEFAULT_NOTE_WIDTH, height: DEFAULT_NOTE_HEIGHT },
+        minimum: {
+          width: MIN_NOTE_WIDTH,
+          height: this.#noteCollapsed ? COLLAPSED_NOTE_HEIGHT : MIN_NOTE_HEIGHT,
+        },
+        margin: 0,
+      });
+      const candidate = restoreNoteDockCandidate({
+        visibleBounds: {
+          ...previous.visibleBounds,
+          width: fitted.width,
+          height: fitted.height,
+        },
+        sourceWorkArea: sourceDisplay.workArea,
+        targetDisplay,
+        displays,
+        edge: previous.edge,
+      });
+      if (candidate) {
+        this.#dockState = {
+          ...previous,
+          displayId: candidate.displayId,
+          visibleBounds: candidate.visibleBounds,
+        };
+        if (previous.phase === 'hidden') {
+          window.setMinimumSize(EDGE_REVEAL_SIZE, EDGE_REVEAL_SIZE);
+          window.setResizable(false);
+          this.#setProgrammaticBounds(window, candidate.hiddenBounds);
+          // 屏幕重排可能把指针被动放到提示条上；要求先移出再进入才唤出。
+          this.#dockState.pointerInside = this.#readPointerInsideNote(false);
+        } else {
+          this.#applyVisibleSizePolicy(window);
+          this.#setProgrammaticBounds(window, candidate.visibleBounds);
+          this.#dockState.pointerInside = this.#readPointerInsideNote(false);
+        }
+        this.#saveVisibleBounds(candidate.visibleBounds);
+        this.#broadcastDockState();
+        this.#stableDisplays = displays;
+        this.#startPointerTracking();
+        if (
+          previous.phase === 'docked-visible' &&
+          !this.#dockState.pointerInside &&
+          !this.#dockState.interactionBlocked
+        ) {
+          this.#scheduleAutoHide();
+        }
+        this.#options.logger.debug('Floating note dock restored after display change', {
+          edge: previous.edge,
+          phase: previous.phase,
+          displayId: candidate.displayId,
+        });
+        return;
+      }
+    }
+
     this.#clearDockTimers();
-    this.#revealDockedNote('display');
-    const persisted = this.#dockState.visibleBounds ?? window.getBounds();
+    const persisted = previous.visibleBounds ?? window.getBounds();
     const restored = restoreVisibleBounds({
       saved:
         this.#noteCollapsed && this.#expandedNoteBounds
@@ -901,6 +1067,7 @@ export class WindowManager {
       defaults: { width: DEFAULT_NOTE_WIDTH, height: DEFAULT_NOTE_HEIGHT },
       minimum: { width: MIN_NOTE_WIDTH, height: MIN_NOTE_HEIGHT },
     });
+    this.#applyVisibleSizePolicy(window);
     this.#clearDockState();
     this.#saveVisibleBounds(restored);
     if (this.#noteCollapsed) {
@@ -909,6 +1076,11 @@ export class WindowManager {
     } else {
       this.#setProgrammaticBounds(window, restored);
     }
+    this.#stableDisplays = displays;
+    this.#options.logger.debug('Floating note display change used visible fallback', {
+      previousPhase: previous.phase,
+      previousEdge: previous.edge,
+    });
   }
 
   #scheduleBoundsSave(window: BrowserWindow): void {

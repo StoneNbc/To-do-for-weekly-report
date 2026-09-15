@@ -9,12 +9,14 @@
 ## 关键符号
 
 - `WindowManager`：`createFloatingNote`、`openProjectCreate`、`closeProjectCreate`、`notifyProjectCreated`、`showFloatingNote`、`setNoteInteractionState`、`setFloatingNoteCollapsed`、`applySettings`、`saveCurrentBounds`。
-- 边界算法：`detectNoteDockCandidate`、`snapNoteToEdge`、`getHiddenNoteBounds`、`isExternalNoteEdge`。
+- 边界算法：`detectNoteDockCandidate`、`restoreNoteDockCandidate`、`snapNoteToEdge`、`getHiddenNoteBounds`、`isExternalNoteEdge`。
 - 桌面入口：`TrayManager`、`MenuFactory`、`DesktopCommands`、`NoteDockSnapshot`。
 
 ## 调用关系
 
 窗口 move/resize 与指针轮询 → `WindowManager` 停靠状态机 → `noteAutoHide` 纯边界计算 → BrowserWindow bounds/level/Spaces 行为 → `noteDockStateChanged` 广播 → `FloatingNotePage` 提示条。托盘/菜单通过 `DesktopCommands` 调用同一 `WindowManager`。
+
+显示器增删或布局变化 → 300ms 尾部防抖（最长 1500ms）→ `WindowManager` 使用事件批次前的稳定停靠快照 → 原屏有效则保持、原屏移除则迁到主屏同侧 → 边缘成为接缝时恢复可见并取消停靠。
 
 新建项目通过 `window.openProjectCreate` 打开父窗口为便利贴的单实例创建窗，复用 `#loadView` 安全配置。创建窗存续时阻止自动隐藏；创建完成事件只接受该窗 sender id 并发送给便利贴。
 

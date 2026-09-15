@@ -20,6 +20,15 @@ export interface NoteDockCandidate {
   hiddenBounds: WindowBounds;
 }
 
+export interface RestoreNoteDockOptions {
+  visibleBounds: WindowBounds;
+  sourceWorkArea: WindowBounds;
+  targetDisplay: NoteDisplayArea;
+  displays: readonly NoteDisplayArea[];
+  edge: NoteDockEdge;
+  revealSize?: number;
+}
+
 const clamp = (value: number, minimum: number, maximum: number): number =>
   Math.min(Math.max(value, minimum), maximum);
 
@@ -118,6 +127,45 @@ export const isExternalNoteEdge = (
   return !displays.some(
     (candidate) => candidate.id !== display.id && intersects(outsideBounds, candidate.workArea),
   );
+};
+
+/**
+ * 显示器布局变化后把既有停靠位置映射到目标显示器的同一边缘。
+ * 沿边方向保留相对位置；边缘已经成为显示器接缝时返回 null。
+ */
+export const restoreNoteDockCandidate = ({
+  visibleBounds,
+  sourceWorkArea,
+  targetDisplay,
+  displays,
+  edge,
+  revealSize = EDGE_REVEAL_SIZE,
+}: RestoreNoteDockOptions): NoteDockCandidate | null => {
+  const vertical = edge === 'left' || edge === 'right';
+  const sourceStart = vertical ? sourceWorkArea.y : sourceWorkArea.x;
+  const sourceLength = vertical ? sourceWorkArea.height : sourceWorkArea.width;
+  const itemLength = vertical ? visibleBounds.height : visibleBounds.width;
+  const targetStart = vertical ? targetDisplay.workArea.y : targetDisplay.workArea.x;
+  const targetLength = vertical ? targetDisplay.workArea.height : targetDisplay.workArea.width;
+  const sourceRange = Math.max(0, sourceLength - itemLength);
+  const targetRange = Math.max(0, targetLength - itemLength);
+  const ratio =
+    sourceRange === 0
+      ? 0
+      : clamp((vertical ? visibleBounds.y : visibleBounds.x) - sourceStart, 0, sourceRange) /
+        sourceRange;
+  const mapped = targetStart + ratio * targetRange;
+  const positioned = vertical
+    ? { ...visibleBounds, y: Math.round(mapped) }
+    : { ...visibleBounds, x: Math.round(mapped) };
+  const snapped = snapNoteToEdge(positioned, targetDisplay.workArea, edge);
+  if (!isExternalNoteEdge(snapped, targetDisplay, displays, edge, revealSize)) return null;
+  return {
+    edge,
+    displayId: targetDisplay.id,
+    visibleBounds: snapped,
+    hiddenBounds: getHiddenNoteBounds(snapped, targetDisplay.workArea, edge, revealSize),
+  };
 };
 
 /**
